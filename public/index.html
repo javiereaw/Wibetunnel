@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Wibetunnel</title>
+  <!-- xterm.js desde CDN -->
+  <link rel="stylesheet" href="https://unpkg.com/xterm@5.3.0/css/xterm.css">
+  <style>
+    /* === Temas con CSS variables === */
+    :root {
+      --bg: #1a1a2e; --fg: #e0e0e0; --secondary: #16213e;
+      --accent: #00d4ff; --btn-bg: #2a2a4a; --btn-border: #444;
+      --bar-bg: #0f0f23; --overlay-bg: rgba(0,0,0,0.7);
+      --term-bg: #1a1a2e; --term-fg: #e0e0e0;
+    }
+    [data-theme="light"] {
+      --bg: #f0f0f0; --fg: #1a1a2e; --secondary: #dde;
+      --accent: #0077bb; --btn-bg: #ccd; --btn-border: #aab;
+      --bar-bg: #e0e0ee; --overlay-bg: rgba(255,255,255,0.85);
+      --term-bg: #fafafa; --term-fg: #1a1a2e;
+    }
+
+    /* === Reset y base (mobile-first) === */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg); color: var(--fg);
+      font-family: 'Courier New', monospace;
+      height: 100vh; height: 100dvh;
+      overflow: hidden;
+    }
+
+    /* === Pantalla de login === */
+    #login {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      height: 100vh; height: 100dvh; gap: 16px;
+    }
+    #login h1 { font-size: 24px; color: var(--accent); }
+    #login input {
+      padding: 14px 16px; font-size: 16px;
+      border: 1px solid var(--btn-border); background: var(--secondary);
+      color: var(--fg); border-radius: 8px; width: 280px;
+      outline: none;
+    }
+    #login input:focus { border-color: var(--accent); }
+    #login button {
+      padding: 14px 32px; font-size: 16px;
+      background: var(--accent); color: var(--bg);
+      border: none; border-radius: 8px;
+      cursor: pointer; font-weight: bold;
+      min-height: 44px;
+    }
+    #login .error { color: #ff4444; font-size: 14px; min-height: 20px; }
+    .input-wrap {
+      position: relative; width: 280px;
+    }
+    .input-wrap input { width: 100%; padding-right: 48px; }
+    #btn-eye {
+      position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; font-size: 16px;
+      cursor: pointer; padding: 8px; color: var(--fg); opacity: 0.5;
+      line-height: 1; min-width: 40px; min-height: 40px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #btn-eye:active { opacity: 1; }
+
+    /* === Contenedor del terminal === */
+    #terminal-container {
+      display: none; flex-direction: column;
+      height: 100vh; height: 100dvh; width: 100vw;
+    }
+
+    /* === Barra superior: dos filas === */
+    #header { display: flex; flex-direction: column; flex-shrink: 0; }
+
+    /* Fila 1: toolbar de iconos */
+    #toolbar {
+      display: flex; align-items: center;
+      justify-content: space-between;
+      background: var(--bar-bg); padding: 0 6px;
+      border-bottom: 1px solid var(--btn-border);
+    }
+    #toolbar-title {
+      font-size: 12px; font-weight: bold;
+      color: var(--accent); padding: 0 6px;
+      letter-spacing: 1px;
+    }
+    #toolbar-actions {
+      display: flex; align-items: center; gap: 2px;
+    }
+    #toolbar-actions button {
+      padding: 8px 10px; font-size: 20px;
+      background: none; border: none;
+      color: var(--fg); cursor: pointer;
+      min-width: 44px; min-height: 44px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 6px; touch-action: manipulation;
+    }
+    #toolbar-actions button:active { background: var(--btn-bg); }
+
+    /* Fila 2: pestanas */
+    #tabs {
+      display: flex; align-items: center;
+      background: var(--bg); overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    #tabs::-webkit-scrollbar { display: none; }
+    .tab {
+      display: flex; align-items: center; gap: 4px;
+      padding: 8px 14px; font-size: 13px;
+      font-family: 'Courier New', monospace;
+      color: var(--fg); background: transparent;
+      border: none; border-bottom: 2px solid transparent;
+      cursor: pointer; white-space: nowrap;
+      opacity: 0.5; transition: opacity 0.15s, background 0.15s;
+    }
+    .tab.active { opacity: 1; border-bottom-color: var(--accent); background: var(--secondary); }
+    .tab-close {
+      font-size: 16px; padding: 6px 8px; margin-left: 2px;
+      background: none; border: none; color: var(--fg);
+      cursor: pointer; opacity: 0.4; line-height: 1;
+      min-width: 32px; min-height: 32px;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .tab-close:hover, .tab-close:active { opacity: 1; color: #ff4444; }
+    #tab-new {
+      padding: 8px 14px; font-size: 18px;
+      background: none; border: none;
+      color: var(--accent); cursor: pointer;
+      flex-shrink: 0; min-width: 44px; min-height: 44px;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    #terminals { flex: 1; width: 100%; overflow: hidden; position: relative; }
+    .term-panel {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      display: none; margin: 0 auto;
+    }
+    .term-panel.active { display: block; }
+
+    /* === Botones flotantes tactiles (se mueven encima del teclado) === */
+    #buttons {
+      display: flex; justify-content: center;
+      gap: 8px; padding: 10px 8px;
+      padding-bottom: max(10px, env(safe-area-inset-bottom));
+      background: var(--secondary); align-items: center;
+      flex-shrink: 0;
+      position: fixed; bottom: 0; left: 0; right: 0;
+      z-index: 50;
+      transition: bottom 0.15s ease-out;
+    }
+    #buttons button {
+      min-width: 44px; min-height: 44px;
+      padding: 8px 12px; font-size: 14px;
+      font-family: 'Courier New', monospace;
+      background: var(--btn-bg); color: var(--fg);
+      border: 1px solid var(--btn-border); border-radius: 8px;
+      cursor: pointer; touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #buttons button:active { background: var(--accent); color: var(--bg); }
+
+    /* === Barra de atajos (Quick Start) === */
+    #shortcuts {
+      display: none; overflow-x: auto;
+      gap: 6px; padding: 6px 8px;
+      background: var(--bar-bg); align-items: center;
+      flex-shrink: 0; white-space: nowrap;
+      -webkit-overflow-scrolling: touch;
+    }
+    #shortcuts button {
+      padding: 10px 16px; font-size: 13px;
+      font-family: 'Courier New', monospace;
+      background: var(--bg); color: var(--accent);
+      border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent); border-radius: 6px;
+      cursor: pointer; touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      flex-shrink: 0; min-height: 40px;
+    }
+    #shortcuts button:active { background: var(--accent); color: var(--bg); }
+
+    /* === Clipboard overlay (pegar texto en mobile) === */
+    #paste-overlay {
+      display: none; position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--overlay-bg); z-index: 200;
+      flex-direction: column; align-items: center;
+      justify-content: center; gap: 12px; padding: 20px;
+    }
+    #paste-overlay textarea {
+      width: 90%; max-width: 400px; height: 120px;
+      padding: 12px; font-size: 15px;
+      font-family: 'Courier New', monospace;
+      background: var(--secondary); color: var(--fg);
+      border: 1px solid var(--accent); border-radius: 8px;
+      outline: none; resize: none;
+    }
+    #paste-overlay .paste-actions {
+      display: flex; gap: 10px;
+    }
+    #paste-overlay button {
+      padding: 10px 24px; font-size: 15px;
+      border: none; border-radius: 8px;
+      cursor: pointer; min-height: 44px;
+      font-family: 'Courier New', monospace;
+    }
+    #paste-overlay .btn-send { background: var(--accent); color: var(--bg); font-weight: bold; }
+    #paste-overlay .btn-cancel { background: var(--btn-border); color: var(--fg); }
+
+    /* === Command palette === */
+    #palette {
+      display: none; position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--overlay-bg); z-index: 300;
+      flex-direction: column; align-items: center;
+      padding: 15vh 16px 0;
+    }
+    #palette-box {
+      width: 100%; max-width: 420px;
+      background: var(--secondary); border: 1px solid var(--btn-border);
+      border-radius: 10px; overflow: hidden;
+    }
+    #palette-input {
+      width: 100%; padding: 14px 16px;
+      font-size: 15px; font-family: 'Courier New', monospace;
+      background: transparent; color: var(--fg);
+      border: none; border-bottom: 1px solid var(--btn-border);
+      outline: none;
+    }
+    #palette-list {
+      max-height: 260px; overflow-y: auto; list-style: none;
+    }
+    #palette-list li {
+      padding: 10px 16px; font-size: 14px;
+      font-family: 'Courier New', monospace;
+      cursor: pointer; display: flex;
+      justify-content: space-between; align-items: center;
+      color: var(--fg);
+    }
+    #palette-list li.selected { background: var(--accent); color: var(--bg); }
+    #palette-list li .hint {
+      font-size: 11px; opacity: 0.5;
+    }
+
+    /* === File browser === */
+    #filebrowser {
+      display: none; position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--overlay-bg); z-index: 250;
+      flex-direction: column; align-items: center;
+      padding: 8vh 16px 0;
+    }
+    #fb-box {
+      width: 100%; max-width: 440px;
+      background: var(--secondary); border: 1px solid var(--btn-border);
+      border-radius: 10px; overflow: hidden; display: flex;
+      flex-direction: column; max-height: 70vh;
+    }
+    #fb-path {
+      padding: 10px 14px; font-size: 12px;
+      color: var(--accent); background: var(--bar-bg);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    #fb-list {
+      flex: 1; overflow-y: auto; list-style: none;
+    }
+    #fb-list li {
+      padding: 10px 14px; font-size: 14px;
+      font-family: 'Courier New', monospace;
+      cursor: pointer; display: flex; gap: 8px;
+      align-items: center; color: var(--fg);
+      border-bottom: 1px solid var(--btn-border);
+    }
+    #fb-list li:active { background: var(--btn-bg); }
+    #fb-list li .fb-icon { width: 20px; text-align: center; flex-shrink: 0; }
+    #fb-list li .fb-select {
+      margin-left: auto; padding: 6px 10px; font-size: 12px;
+      font-family: 'Courier New', monospace;
+      background: var(--accent); color: var(--bg);
+      border: none; border-radius: 5px; cursor: pointer;
+      flex-shrink: 0; min-height: 32px;
+    }
+    #fb-list li .fb-select:active { opacity: 0.7; }
+
+    /* === Barra de busqueda en terminal === */
+    #search-bar {
+      display: none; position: absolute; top: 0; right: 0;
+      z-index: 60; background: var(--secondary);
+      border: 1px solid var(--btn-border); border-radius: 0 0 0 8px;
+      padding: 6px 8px; gap: 6px; align-items: center;
+    }
+    #search-bar.visible { display: flex; }
+    #search-bar input {
+      width: 180px; padding: 6px 10px; font-size: 14px;
+      font-family: 'Courier New', monospace;
+      background: var(--bg); color: var(--fg);
+      border: 1px solid var(--btn-border); border-radius: 5px;
+      outline: none;
+    }
+    #search-bar input:focus { border-color: var(--accent); }
+    #search-bar button {
+      min-width: 32px; min-height: 32px; font-size: 14px;
+      background: var(--btn-bg); color: var(--fg);
+      border: 1px solid var(--btn-border); border-radius: 5px;
+      cursor: pointer; display: flex; align-items: center;
+      justify-content: center;
+    }
+    #search-bar button:active { background: var(--accent); color: var(--bg); }
+
+    /* Espaciador para que el terminal no quede detras de los botones fijos */
+    #btn-spacer { height: 64px; flex-shrink: 0; }
+
+    /* === Indicador de reconexion === */
+    #status {
+      display: none; position: fixed;
+      top: 8px; right: 8px;
+      padding: 6px 12px; border-radius: 6px;
+      font-size: 12px; background: #ff4444;
+      color: white; z-index: 100;
+    }
+  </style>
+</head>
+<body>
+  <!-- Pantalla de login -->
+  <div id="login">
+    <h1>Wibetunnel</h1>
+    <div class="input-wrap">
+      <input type="password" id="token" placeholder="Token de acceso" autofocus>
+      <button id="btn-eye" type="button" aria-label="Mostrar token">&#x1F441;</button>
+    </div>
+    <button id="btn-connect">Conectar</button>
+    <div id="error" class="error"></div>
+  </div>
+
+  <!-- Terminal + botones -->
+  <div id="terminal-container">
+    <div id="header">
+      <!-- Fila 1: toolbar de iconos -->
+      <div id="toolbar">
+        <span id="toolbar-title">WIBETUNNEL</span>
+        <div id="toolbar-actions">
+          <button id="btn-search" title="Buscar" aria-label="Buscar en terminal">&#x1F50D;</button>
+          <button id="btn-font-down" title="Reducir letra" aria-label="Reducir letra">A-</button>
+          <button id="btn-font-up" title="Aumentar letra" aria-label="Aumentar letra">A+</button>
+          <button id="btn-files" title="Archivos" aria-label="File browser">&#x1F4C1;</button>
+          <button id="btn-palette" title="Comandos" aria-label="Command palette">&#x2318;</button>
+          <button id="btn-notif" title="Notificaciones" aria-label="Notificaciones">&#x1F515;</button>
+          <button id="theme-toggle" title="Cambiar tema" aria-label="Cambiar tema"></button>
+        </div>
+      </div>
+      <!-- Fila 2: pestanas -->
+      <div id="tabs">
+        <button id="tab-new" title="Nueva sesion" aria-label="Nueva sesion">+</button>
+      </div>
+    </div>
+    <div id="shortcuts"></div>
+    <div id="terminals" style="position:relative;">
+      <div id="search-bar">
+        <input id="search-input" placeholder="Buscar..." autocomplete="off">
+        <button id="search-prev" title="Anterior">&#x2191;</button>
+        <button id="search-next" title="Siguiente">&#x2193;</button>
+        <button id="search-close" title="Cerrar">&#x2715;</button>
+      </div>
+    </div>
+    <div id="btn-spacer"></div>
+    <div id="buttons">
+      <button data-key="\x03">Ctrl+C</button>
+      <button data-key="\t">Tab</button>
+      <button data-key="\x1b[A">&#x2191;</button>
+      <button data-key="\x1b[B">&#x2193;</button>
+      <button data-key="\r">Enter</button>
+      <button id="btn-copy" data-action="copy">Copy</button>
+      <button id="btn-paste" data-action="paste">Paste</button>
+    </div>
+  </div>
+
+  <!-- Overlay para pegar texto (mobile) -->
+  <div id="paste-overlay">
+    <textarea id="paste-input" placeholder="Pega aqui tu texto..."></textarea>
+    <div class="paste-actions">
+      <button class="btn-send" id="paste-send">Enviar</button>
+      <button class="btn-cancel" id="paste-cancel">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- File browser -->
+  <div id="filebrowser">
+    <div id="fb-box">
+      <div id="fb-path"></div>
+      <ul id="fb-list"></ul>
+    </div>
+  </div>
+
+  <!-- Command palette -->
+  <div id="palette">
+    <div id="palette-box">
+      <input id="palette-input" placeholder="Buscar comando..." autocomplete="off">
+      <ul id="palette-list"></ul>
+    </div>
+  </div>
+
+  <!-- Indicador de reconexion -->
+  <div id="status">Reconectando...</div>
+
+  <!-- Dependencias desde CDN -->
+  <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script src="https://unpkg.com/xterm-addon-search@0.13.0/lib/xterm-addon-search.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+
+  <script>
+    // === Estado global (declarar antes de todo) ===
+    let socket, savedToken = '';
+    let maxSessions = 5, sessionCounter = 0;
+    const sessions = new Map(); // id → { term, fitAddon, tabEl, panelEl }
+    let activeId = null;
+    let initialized = false;
+    let currentFontSize = parseInt(localStorage.getItem('wibe-fontsize')) || 14;
+
+    // === Sistema de temas (dark / light / auto) ===
+    const THEMES = ['dark', 'light', 'auto'];
+    const THEME_ICONS = { dark: '\u{1F319}', light: '\u{2600}\u{FE0F}', auto: '\u{1F4BB}' };
+
+    function getSystemTheme() {
+      return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    }
+
+    function applyTheme(mode) {
+      const resolved = mode === 'auto' ? getSystemTheme() : mode;
+      document.documentElement.setAttribute('data-theme', resolved);
+      document.getElementById('theme-toggle').textContent = THEME_ICONS[mode];
+      // Actualizar tema de xterm en todas las sesiones
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--term-bg').trim();
+      const fg = getComputedStyle(document.documentElement).getPropertyValue('--term-fg').trim();
+      const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+      sessions.forEach(s => { s.term.options.theme = { background: bg, foreground: fg, cursor: accent }; });
+    }
+
+    let currentThemeMode = localStorage.getItem('wibe-theme') || 'dark';
+    applyTheme(currentThemeMode);
+
+    document.getElementById('theme-toggle').addEventListener('click', () => {
+      const idx = THEMES.indexOf(currentThemeMode);
+      currentThemeMode = THEMES[(idx + 1) % THEMES.length];
+      localStorage.setItem('wibe-theme', currentThemeMode);
+      applyTheme(currentThemeMode);
+    });
+
+    // Reaccionar a cambios del sistema cuando esta en auto
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+      if (currentThemeMode === 'auto') applyTheme('auto');
+    });
+
+    // === Elementos del DOM ===
+    const loginEl = document.getElementById('login');
+    const containerEl = document.getElementById('terminal-container');
+    const errorEl = document.getElementById('error');
+    const statusEl = document.getElementById('status');
+    const tokenInput = document.getElementById('token');
+    const tabsEl = document.getElementById('tabs');
+    const terminalsEl = document.getElementById('terminals');
+    const buttonsEl = document.getElementById('buttons');
+    const spacerEl = document.getElementById('btn-spacer');
+
+    // === Helpers: obtener sesion activa ===
+    function active() { return sessions.get(activeId); }
+
+    // === Crear nueva sesion ===
+    function createSession() {
+      if (!socket || !socket.connected || sessions.size >= maxSessions) return;
+      const id = 'ses-' + (++sessionCounter);
+
+      // Pedir al servidor crear PTY
+      socket.emit('session:create', id);
+
+      // Crear pestana
+      const tab = document.createElement('button');
+      tab.className = 'tab';
+      tab.dataset.id = id;
+      tab.innerHTML = `<span class="tab-name">Shell ${sessionCounter}</span> <span class="tab-close" data-id="${id}">&times;</span>`;
+      tabsEl.insertBefore(tab, document.getElementById('tab-new'));
+
+      // Crear panel del terminal
+      const panel = document.createElement('div');
+      panel.className = 'term-panel';
+      panel.id = 'panel-' + id;
+      terminalsEl.appendChild(panel);
+
+      // Crear instancia xterm
+      const cs = getComputedStyle(document.documentElement);
+      const term = new Terminal({
+        fontSize: currentFontSize || 14,
+        fontFamily: "'Courier New', monospace",
+        theme: {
+          background: cs.getPropertyValue('--term-bg').trim(),
+          foreground: cs.getPropertyValue('--term-fg').trim(),
+          cursor: cs.getPropertyValue('--accent').trim()
+        },
+        cursorBlink: true
+      });
+      const fitAddon = new FitAddon.FitAddon();
+      const searchAddon = new SearchAddon.SearchAddon();
+      term.loadAddon(fitAddon);
+      term.loadAddon(searchAddon);
+      term.open(panel);
+
+      // Input del usuario → servidor
+      term.onData((data) => {
+        if (socket && socket.connected) {
+          socket.emit('input', { id, data });
+        }
+      });
+
+      // Focus al tocar
+      panel.addEventListener('touchstart', () => term.focus());
+
+      sessions.set(id, { term, fitAddon, searchAddon, tabEl: tab, panelEl: panel, name: 'Shell ' + sessionCounter });
+      switchSession(id);
+    }
+
+    // === Cambiar de sesion ===
+    function switchSession(id) {
+      if (!sessions.has(id)) return;
+      activeId = id;
+      // Actualizar pestanas
+      tabsEl.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.id === id));
+      // Mostrar/ocultar paneles
+      sessions.forEach((s, sid) => {
+        s.panelEl.classList.toggle('active', sid === id);
+      });
+      // Fit y focus
+      const s = active();
+      setTimeout(() => {
+        s.fitAddon.fit();
+if (socket && socket.connected) {
+          socket.emit('resize', { id, cols: s.term.cols, rows: s.term.rows });
+        }
+        s.term.focus();
+      }, 50);
+    }
+
+    // === Cerrar sesion ===
+    function closeSession(id) {
+      const s = sessions.get(id);
+      if (!s) return;
+      socket.emit('session:kill', id);
+      s.term.dispose();
+      s.tabEl.remove();
+      s.panelEl.remove();
+      sessions.delete(id);
+      // Si quedan sesiones, activar la ultima
+      if (sessions.size > 0) {
+        switchSession([...sessions.keys()].pop());
+      } else {
+        createSession();
+      }
+    }
+
+    // === Conectar al servidor ===
+    function connect() {
+      savedToken = tokenInput.value.trim();
+      if (!savedToken) return;
+      errorEl.textContent = '';
+
+      socket = io({ reconnection: true, reconnectionDelay: 2000, reconnectionAttempts: Infinity });
+
+      socket.on('connect', () => {
+        statusEl.style.display = 'none';
+        socket.emit('auth', savedToken);
+      });
+
+      socket.on('auth_success', (data) => {
+        loginEl.style.display = 'none';
+        containerEl.style.display = 'flex';
+        if (data && data.maxSessions) maxSessions = data.maxSessions;
+
+        // Renderizar atajos (solo primera vez)
+        if (!initialized && data && data.shortcuts && data.shortcuts.length) {
+          const shortcutsEl = document.getElementById('shortcuts');
+          shortcutsEl.style.display = 'flex';
+          data.shortcuts.forEach(s => {
+            const btn = document.createElement('button');
+            btn.textContent = s.label;
+            btn.dataset.cmd = s.cmd;
+            shortcutsEl.appendChild(btn);
+          });
+        }
+
+        if (!initialized) {
+          createSession();
+          initialized = true;
+        } else {
+          // Reconexion: recrear sesiones
+          sessions.clear();
+          terminalsEl.innerHTML = '';
+          tabsEl.querySelectorAll('.tab').forEach(t => t.remove());
+          createSession();
+        }
+      });
+
+      socket.on('auth_failed', () => {
+        errorEl.textContent = 'Token incorrecto';
+        socket.disconnect();
+      });
+
+      socket.on('auth_ratelimited', () => {
+        errorEl.textContent = 'Demasiados intentos. Espera unos minutos.';
+        socket.disconnect();
+      });
+
+      socket.on('session:timeout', () => {
+        alert('Sesion cerrada por inactividad');
+        location.reload();
+      });
+
+      // Output dirigido a sesion especifica
+      socket.on('output', ({ id, data }) => {
+        const s = sessions.get(id);
+        if (s) { s.term.write(data); trackOutput(id); }
+      });
+
+      // Sesion terminada en servidor
+      socket.on('session:exit', (id) => {
+        const s = sessions.get(id);
+        if (s) s.term.write('\r\n[Sesion terminada]\r\n');
+      });
+
+      socket.on('disconnect', () => {
+        statusEl.style.display = 'block';
+      });
+    }
+
+    // === Resize global: ajustar sesion activa ===
+    function doResize() {
+      const s = active();
+      if (!s) return;
+      s.fitAddon.fit();
+      if (socket && socket.connected) {
+        socket.emit('resize', { id: activeId, cols: s.term.cols, rows: s.term.rows });
+      }
+    }
+    window.addEventListener('resize', doResize);
+
+    // === Reposicionar botones encima del teclado virtual ===
+    if (window.visualViewport) {
+      const adjustButtons = () => {
+        const keyboardHeight = window.innerHeight - window.visualViewport.height;
+        buttonsEl.style.bottom = keyboardHeight + 'px';
+        spacerEl.style.height = (64 + keyboardHeight) + 'px';
+        doResize();
+      };
+      window.visualViewport.addEventListener('resize', adjustButtons);
+      window.visualViewport.addEventListener('scroll', adjustButtons);
+    }
+
+    // === Click en pestanas (cambiar o cerrar) ===
+    tabsEl.addEventListener('click', (e) => {
+      const closeBtn = e.target.closest('.tab-close');
+      if (closeBtn) { closeSession(closeBtn.dataset.id); return; }
+      const tab = e.target.closest('.tab');
+      if (tab) switchSession(tab.dataset.id);
+    });
+    document.getElementById('tab-new').addEventListener('click', createSession);
+
+    // === Renombrar sesion: long press en la tab (500ms) ===
+    let longPressTimer = null;
+    tabsEl.addEventListener('touchstart', (e) => {
+      const tab = e.target.closest('.tab');
+      if (!tab || e.target.closest('.tab-close')) return;
+      longPressTimer = setTimeout(() => {
+        longPressTimer = null;
+        e.preventDefault();
+        renameTab(tab);
+      }, 500);
+    }, { passive: false });
+    tabsEl.addEventListener('touchend', () => { clearTimeout(longPressTimer); });
+    tabsEl.addEventListener('touchmove', () => { clearTimeout(longPressTimer); });
+    // Desktop: doble-click tambien funciona
+    tabsEl.addEventListener('dblclick', (e) => {
+      const tab = e.target.closest('.tab');
+      if (tab && !e.target.closest('.tab-close')) renameTab(tab);
+    });
+
+    function renameTab(tab) {
+      const nameSpan = tab.querySelector('.tab-name');
+      if (!nameSpan) return;
+      const sid = tab.dataset.id;
+      const s = sessions.get(sid);
+      if (!s) return;
+      const oldName = s.name;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = oldName;
+      input.style.cssText = 'width:80px;padding:2px 4px;font-size:12px;font-family:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--accent);border-radius:3px;outline:none;';
+      nameSpan.replaceWith(input);
+      input.focus();
+      input.select();
+      const finish = () => {
+        const newName = input.value.trim() || oldName;
+        s.name = newName;
+        const span = document.createElement('span');
+        span.className = 'tab-name';
+        span.textContent = newName;
+        input.replaceWith(span);
+      };
+      input.addEventListener('blur', finish);
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') input.blur();
+        if (ev.key === 'Escape') { input.value = oldName; input.blur(); }
+      });
+    }
+
+    // === Buscar en terminal (Ctrl+F) ===
+    const searchBar = document.getElementById('search-bar');
+    const searchInput = document.getElementById('search-input');
+
+    function openSearch() {
+      searchBar.classList.add('visible');
+      searchInput.value = '';
+      searchInput.focus();
+    }
+    function closeSearch() {
+      searchBar.classList.remove('visible');
+      const s = active();
+      if (s) { s.searchAddon.clearDecorations(); s.term.focus(); }
+    }
+    function doSearch(dir) {
+      const s = active();
+      if (!s || !searchInput.value) return;
+      if (dir === 'prev') s.searchAddon.findPrevious(searchInput.value);
+      else s.searchAddon.findNext(searchInput.value);
+    }
+
+    document.getElementById('btn-search').addEventListener('click', openSearch);
+    document.getElementById('search-close').addEventListener('click', closeSearch);
+    document.getElementById('search-next').addEventListener('click', () => doSearch('next'));
+    document.getElementById('search-prev').addEventListener('click', () => doSearch('prev'));
+    searchInput.addEventListener('input', () => doSearch('next'));
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); doSearch(e.shiftKey ? 'prev' : 'next'); }
+      if (e.key === 'Escape') closeSearch();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'f' && containerEl.style.display === 'flex') {
+        e.preventDefault();
+        openSearch();
+      }
+    });
+
+    // === Ajuste de font size ===
+    function applyFontSize(size) {
+      size = Math.max(8, Math.min(28, size));
+      currentFontSize = size;
+      localStorage.setItem('wibe-fontsize', size);
+      sessions.forEach((s) => {
+        s.term.options.fontSize = size;
+      });
+      doResize();
+    }
+
+    document.getElementById('btn-font-up').addEventListener('click', () => applyFontSize(currentFontSize + 2));
+    document.getElementById('btn-font-down').addEventListener('click', () => applyFontSize(currentFontSize - 2));
+
+    // === Atajos: enviar comando + Enter a la sesion activa ===
+    document.getElementById('shortcuts').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn || !socket || !socket.connected || !activeId) return;
+      socket.emit('input', { id: activeId, data: btn.dataset.cmd + '\r' });
+      const s = active(); if (s) s.term.focus();
+    });
+
+    // === Botones flotantes: enviar tecla especial ===
+    buttonsEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn || !socket || !socket.connected || !activeId) return;
+      if (btn.dataset.action) return;
+      socket.emit('input', { id: activeId, data: btn.dataset.key });
+      const s = active(); if (s) s.term.focus();
+    });
+
+    // === Clipboard: copiar seleccion del terminal ===
+    document.getElementById('btn-copy').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const s = active();
+      if (!s) return;
+      const sel = s.term.getSelection();
+      if (sel) {
+        navigator.clipboard.writeText(sel).then(() => {
+          e.target.textContent = 'OK!';
+          setTimeout(() => e.target.textContent = 'Copy', 800);
+        });
+      }
+    });
+
+    // === Clipboard: abrir overlay para pegar ===
+    const pasteOverlay = document.getElementById('paste-overlay');
+    const pasteInput = document.getElementById('paste-input');
+
+    document.getElementById('btn-paste').addEventListener('click', (e) => {
+      e.stopPropagation();
+      pasteOverlay.style.display = 'flex';
+      pasteInput.value = '';
+      pasteInput.focus();
+      navigator.clipboard.readText()
+        .then(text => { if (text) pasteInput.value = text; })
+        .catch(() => {});
+    });
+
+    document.getElementById('paste-send').addEventListener('click', () => {
+      const text = pasteInput.value;
+      if (text && socket && socket.connected && activeId) {
+        socket.emit('input', { id: activeId, data: text });
+      }
+      pasteOverlay.style.display = 'none';
+      const s = active(); if (s) s.term.focus();
+    });
+
+    document.getElementById('paste-cancel').addEventListener('click', () => {
+      pasteOverlay.style.display = 'none';
+      const s = active(); if (s) s.term.focus();
+    });
+
+
+    // === File browser ===
+    const fbEl = document.getElementById('filebrowser');
+    const fbPathEl = document.getElementById('fb-path');
+    const fbListEl = document.getElementById('fb-list');
+    let fbCurrentPath = '';
+
+    function openFileBrowser(dirPath) {
+      if (!socket || !socket.connected) return;
+      socket.emit('fs:list', dirPath || '', (res) => {
+        if (res.error) return;
+        fbCurrentPath = res.path;
+        fbPathEl.textContent = res.path;
+        fbListEl.innerHTML = '';
+
+        // Boton para subir un nivel
+        const parentLi = document.createElement('li');
+        parentLi.innerHTML = '<span class="fb-icon">..</span><span>Subir</span>';
+        parentLi.addEventListener('click', () => {
+          const parent = fbCurrentPath.replace(/[\\/][^\\/]+$/, '') || fbCurrentPath;
+          openFileBrowser(parent);
+        });
+        fbListEl.appendChild(parentLi);
+
+        res.items.forEach(item => {
+          const li = document.createElement('li');
+          const fullPath = fbCurrentPath + '\\' + item.name;
+          if (item.isDir) {
+            li.innerHTML = `<span class="fb-icon">\u{1F4C1}</span><span>${item.name}</span><button class="fb-select">Sel</button>`;
+            // Click en el nombre → navegar dentro
+            li.addEventListener('click', (e) => {
+              if (e.target.classList.contains('fb-select')) return;
+              openFileBrowser(fullPath);
+            });
+            // Click en "Sel" → cd a la carpeta en terminal
+            li.querySelector('.fb-select').addEventListener('click', () => {
+              if (socket && socket.connected && activeId) {
+                socket.emit('input', { id: activeId, data: 'cd "' + fullPath + '"\r' });
+              }
+              closeFileBrowser();
+            });
+          } else {
+            li.innerHTML = `<span class="fb-icon">\u{1F4C4}</span><span>${item.name}</span>`;
+            li.addEventListener('click', () => {
+              if (socket && socket.connected && activeId) {
+                socket.emit('input', { id: activeId, data: fullPath });
+              }
+              closeFileBrowser();
+            });
+          }
+          fbListEl.appendChild(li);
+        });
+
+        fbEl.style.display = 'flex';
+      });
+    }
+
+    function closeFileBrowser() {
+      fbEl.style.display = 'none';
+      const s = active(); if (s) s.term.focus();
+    }
+
+    fbEl.addEventListener('click', (e) => { if (e.target === fbEl) closeFileBrowser(); });
+    document.getElementById('btn-files').addEventListener('click', () => openFileBrowser(''));
+
+    // === Notificaciones (detectar fin de comando largo) ===
+    let notifEnabled = localStorage.getItem('wibe-notif') === 'true';
+    const notifBtn = document.getElementById('btn-notif');
+    const NOTIF_ICONS = { on: '\u{1F514}', off: '\u{1F515}' };
+    const outputTimers = new Map(); // sessionId → timeout
+
+    function updateNotifBtn() {
+      notifBtn.textContent = notifEnabled ? NOTIF_ICONS.on : NOTIF_ICONS.off;
+    }
+    updateNotifBtn();
+
+    notifBtn.addEventListener('click', async () => {
+      if (!notifEnabled && Notification.permission === 'default') {
+        await Notification.requestPermission();
+      }
+      if (Notification.permission === 'denied') return;
+      notifEnabled = !notifEnabled;
+      localStorage.setItem('wibe-notif', notifEnabled);
+      updateNotifBtn();
+    });
+
+    // Trackear output: si no hay output en 3s y luego llega nuevo output
+    // mientras la pestana esta en background → notificar
+    function trackOutput(sessionId) {
+      if (!notifEnabled || document.visibilityState === 'visible') {
+        // Reiniciar timer
+        clearTimeout(outputTimers.get(sessionId));
+        outputTimers.set(sessionId, setTimeout(() => outputTimers.delete(sessionId), 3000));
+        return;
+      }
+      // Pagina en background: si no habia timer activo, el comando es largo → notificar
+      if (!outputTimers.has(sessionId)) {
+        const num = sessionId.replace('ses-', '');
+        new Notification('Wibetunnel', { body: `Shell ${num}: comando completado`, icon: '/favicon.ico' });
+      }
+      clearTimeout(outputTimers.get(sessionId));
+      outputTimers.set(sessionId, setTimeout(() => outputTimers.delete(sessionId), 3000));
+    }
+
+    // === Command palette ===
+    const paletteEl = document.getElementById('palette');
+    const paletteInputEl = document.getElementById('palette-input');
+    const paletteListEl = document.getElementById('palette-list');
+    let paletteIdx = 0;
+
+    function getPaletteCommands() {
+      const cmds = [
+        { name: 'Nueva sesion', hint: '', action: () => createSession() },
+        { name: 'Cerrar sesion', hint: '', action: () => { if (activeId) closeSession(activeId); } },
+        { name: 'Tema: Dark', hint: '', action: () => { currentThemeMode = 'dark'; localStorage.setItem('wibe-theme', 'dark'); applyTheme('dark'); } },
+        { name: 'Tema: Light', hint: '', action: () => { currentThemeMode = 'light'; localStorage.setItem('wibe-theme', 'light'); applyTheme('light'); } },
+        { name: 'Tema: Auto', hint: '', action: () => { currentThemeMode = 'auto'; localStorage.setItem('wibe-theme', 'auto'); applyTheme('auto'); } },
+        { name: 'Limpiar terminal', hint: 'cls', action: () => { const s = active(); if (s) s.term.clear(); } },
+        { name: 'Copiar seleccion', hint: '', action: () => { const s = active(); if (s) { const sel = s.term.getSelection(); if (sel) navigator.clipboard.writeText(sel); } } },
+        { name: 'Pegar', hint: '', action: () => document.getElementById('btn-paste').click() },
+        { name: 'Explorar archivos', hint: '', action: () => openFileBrowser('') },
+        { name: 'Buscar en terminal', hint: 'Ctrl+F', action: () => openSearch() },
+        { name: 'Letra mas grande', hint: 'A+', action: () => applyFontSize(currentFontSize + 2) },
+        { name: 'Letra mas pequena', hint: 'A-', action: () => applyFontSize(currentFontSize - 2) },
+      ];
+      // Añadir sesiones como comandos para cambiar rapidamente
+      sessions.forEach((s, id) => {
+        const num = id.replace('ses-', '');
+        cmds.push({ name: `Ir a Shell ${num}`, hint: '', action: () => switchSession(id) });
+      });
+      return cmds;
+    }
+
+    function openPalette() {
+      paletteEl.style.display = 'flex';
+      paletteInputEl.value = '';
+      paletteIdx = 0;
+      renderPalette();
+      paletteInputEl.focus();
+    }
+
+    function closePalette() {
+      paletteEl.style.display = 'none';
+      const s = active(); if (s) s.term.focus();
+    }
+
+    function renderPalette() {
+      const q = paletteInputEl.value.toLowerCase();
+      const cmds = getPaletteCommands().filter(c => c.name.toLowerCase().includes(q));
+      paletteListEl.innerHTML = '';
+      cmds.forEach((c, i) => {
+        const li = document.createElement('li');
+        li.innerHTML = `<span>${c.name}</span>${c.hint ? `<span class="hint">${c.hint}</span>` : ''}`;
+        if (i === paletteIdx) li.classList.add('selected');
+        li.addEventListener('click', () => { closePalette(); c.action(); });
+        paletteListEl.appendChild(li);
+      });
+      if (paletteIdx >= cmds.length) paletteIdx = Math.max(0, cmds.length - 1);
+    }
+
+    paletteInputEl.addEventListener('input', () => { paletteIdx = 0; renderPalette(); });
+    paletteInputEl.addEventListener('keydown', (e) => {
+      const items = paletteListEl.querySelectorAll('li');
+      if (e.key === 'ArrowDown') { e.preventDefault(); paletteIdx = Math.min(paletteIdx + 1, items.length - 1); renderPalette(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); paletteIdx = Math.max(paletteIdx - 1, 0); renderPalette(); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (items[paletteIdx]) items[paletteIdx].click(); }
+      else if (e.key === 'Escape') { closePalette(); }
+    });
+
+    // Cerrar palette al hacer click fuera
+    paletteEl.addEventListener('click', (e) => { if (e.target === paletteEl) closePalette(); });
+
+    // Abrir con boton o Ctrl+Shift+P
+    document.getElementById('btn-palette').addEventListener('click', openPalette);
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'P') { e.preventDefault(); openPalette(); }
+    });
+
+    // === Toggle visibilidad del token ===
+    document.getElementById('btn-eye').addEventListener('click', () => {
+      const isHidden = tokenInput.type === 'password';
+      tokenInput.type = isHidden ? 'text' : 'password';
+      tokenInput.focus();
+    });
+
+    // === Enter en input de token = conectar ===
+    tokenInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
+    document.getElementById('btn-connect').addEventListener('click', connect);
+  </script>
+</body>
+</html>
