@@ -139,16 +139,13 @@
     }
     .term-panel.active { display: block; }
 
-    /* === Botones flotantes tactiles (se mueven encima del teclado) === */
+    /* === Botones tactiles (barra superior, encima del terminal) === */
     #buttons {
       display: flex; justify-content: center;
-      gap: 8px; padding: 10px 8px;
-      padding-bottom: max(10px, env(safe-area-inset-bottom));
+      gap: 8px; padding: 8px 8px;
       background: var(--secondary); align-items: center;
       flex-shrink: 0;
-      position: fixed; bottom: 0; left: 0; right: 0;
-      z-index: 50;
-      transition: bottom 0.15s ease-out;
+      border-bottom: 1px solid var(--btn-border);
     }
     #buttons button {
       min-width: 44px; min-height: 44px;
@@ -308,8 +305,8 @@
     }
     #search-bar button:active { background: var(--accent); color: var(--bg); }
 
-    /* Espaciador para que el terminal no quede detras de los botones fijos */
-    #btn-spacer { height: 64px; flex-shrink: 0; }
+    /* Espaciador ya no necesario (botones arriba) */
+    #btn-spacer { display: none; }
 
     /* === Indicador de reconexion === */
     #status {
@@ -355,6 +352,15 @@
       </div>
     </div>
     <div id="shortcuts"></div>
+    <div id="buttons">
+      <button data-key="\x03">Cancel<br><small style="opacity:.5;font-size:11px">Ctrl+C</small></button>
+      <button data-key="\t">Tab</button>
+      <button data-key="\x1b[A">&#x2191;</button>
+      <button data-key="\x1b[B">&#x2193;</button>
+      <button data-key="\r">Enter</button>
+      <button id="btn-copy" data-action="copy">Copy</button>
+      <button id="btn-paste" data-action="paste">Paste</button>
+    </div>
     <div id="terminals" style="position:relative;">
       <div id="search-bar">
         <input id="search-input" placeholder="Buscar..." autocomplete="off">
@@ -362,16 +368,6 @@
         <button id="search-next" title="Siguiente">&#x2193;</button>
         <button id="search-close" title="Cerrar">&#x2715;</button>
       </div>
-    </div>
-    <div id="btn-spacer"></div>
-    <div id="buttons">
-      <button data-key="\x03">Ctrl+C</button>
-      <button data-key="\t">Tab</button>
-      <button data-key="\x1b[A">&#x2191;</button>
-      <button data-key="\x1b[B">&#x2193;</button>
-      <button data-key="\r">Enter</button>
-      <button id="btn-copy" data-action="copy">Copy</button>
-      <button id="btn-paste" data-action="paste">Paste</button>
     </div>
   </div>
 
@@ -461,7 +457,6 @@
     const tabsEl = document.getElementById('tabs');
     const terminalsEl = document.getElementById('terminals');
     const buttonsEl = document.getElementById('buttons');
-    const spacerEl = document.getElementById('btn-spacer');
 
     // === Helpers: obtener sesion activa ===
     function active() { return sessions.get(activeId); }
@@ -642,16 +637,9 @@ if (socket && socket.connected) {
     }
     window.addEventListener('resize', doResize);
 
-    // === Reposicionar botones encima del teclado virtual ===
+    // === Ajustar terminal cuando aparece el teclado virtual ===
     if (window.visualViewport) {
-      const adjustButtons = () => {
-        const keyboardHeight = window.innerHeight - window.visualViewport.height;
-        buttonsEl.style.bottom = keyboardHeight + 'px';
-        spacerEl.style.height = (64 + keyboardHeight) + 'px';
-        doResize();
-      };
-      window.visualViewport.addEventListener('resize', adjustButtons);
-      window.visualViewport.addEventListener('scroll', adjustButtons);
+      window.visualViewport.addEventListener('resize', doResize);
     }
 
     // === Click en pestanas (cambiar o cerrar) ===
@@ -849,21 +837,34 @@ if (socket && socket.connected) {
           const li = document.createElement('li');
           const fullPath = fbCurrentPath + '\\' + item.name;
           if (item.isDir) {
-            li.innerHTML = `<span class="fb-icon">\u{1F4C1}</span><span>${item.name}</span><button class="fb-select">Sel</button>`;
+            const icon = document.createElement('span');
+            icon.className = 'fb-icon';
+            icon.textContent = '\u{1F4C1}';
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = item.name;
+            const selBtn = document.createElement('button');
+            selBtn.className = 'fb-select';
+            selBtn.textContent = 'Sel';
+            li.append(icon, nameSpan, selBtn);
             // Click en el nombre → navegar dentro
             li.addEventListener('click', (e) => {
               if (e.target.classList.contains('fb-select')) return;
               openFileBrowser(fullPath);
             });
             // Click en "Sel" → cd a la carpeta en terminal
-            li.querySelector('.fb-select').addEventListener('click', () => {
+            selBtn.addEventListener('click', () => {
               if (socket && socket.connected && activeId) {
                 socket.emit('input', { id: activeId, data: 'cd "' + fullPath + '"\r' });
               }
               closeFileBrowser();
             });
           } else {
-            li.innerHTML = `<span class="fb-icon">\u{1F4C4}</span><span>${item.name}</span>`;
+            const icon = document.createElement('span');
+            icon.className = 'fb-icon';
+            icon.textContent = '\u{1F4C4}';
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = item.name;
+            li.append(icon, nameSpan);
             li.addEventListener('click', () => {
               if (socket && socket.connected && activeId) {
                 socket.emit('input', { id: activeId, data: fullPath });

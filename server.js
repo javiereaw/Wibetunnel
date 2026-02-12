@@ -139,12 +139,18 @@ io.on('connection', (socket) => {
   socket.on('session:create', (sessionId) => {
     if (!authenticated || sessions.size >= MAX_SESSIONS) return;
 
+    // Filtrar variables sensibles del entorno antes de pasarlo al PTY
+    const safeEnv = { ...process.env };
+    delete safeEnv.WIBE_TOKEN;
+    delete safeEnv.WIBE_SSL_CERT;
+    delete safeEnv.WIBE_SSL_KEY;
+
     const ptyProcess = pty.spawn(SHELL, [], {
       name: 'xterm-color',
       cols: 80,
       rows: 24,
       cwd: CWD,
-      env: process.env
+      env: safeEnv
     });
 
     sessions.set(sessionId, ptyProcess);
@@ -197,8 +203,14 @@ io.on('connection', (socket) => {
   // File browser: listar directorio
   socket.on('fs:list', (dirPath, callback) => {
     if (!authenticated) return;
+    if (typeof callback !== 'function') return;
     // Resolver ruta absoluta, limitar a CWD como raiz
     const resolved = path.resolve(dirPath || CWD);
+    const normalizedCwd = path.resolve(CWD);
+    if (resolved !== normalizedCwd && !resolved.startsWith(normalizedCwd + path.sep)) {
+      callback({ path: normalizedCwd, items: [], error: 'Acceso denegado: fuera del directorio raiz' });
+      return;
+    }
     try {
       const entries = fs.readdirSync(resolved, { withFileTypes: true });
       const items = entries.map(e => ({
@@ -233,3 +245,23 @@ server.listen(PORT, () => {
   if (SESSION_TIMEOUT > 0) console.log(`[TIMEOUT] Inactividad: ${SESSION_TIMEOUT} min`);
   if (RATE_MAX) console.log(`[RATE] Max ${RATE_MAX} intentos fallidos, bloqueo ${RATE_WINDOW} min`);
 });
+
+// === Graceful shutdown: limpiar PTYs y cerrar servidor ===
+function gracefulShutdown(signal) {
+  console.log(`\n[SHUTDOWN] Recibido ${signal}, limpiando...`);
+  // Desconectar todos los sockets (esto dispara sus handlers 'disconnect' que matan los PTYs)
+  for (const [, socket] of io.sockets.sockets) {
+    socket.disconnect(true);
+  }
+  server.close(() => {
+    console.log('[SHUTDOWN] Servidor cerrado limpiamente');
+    process.exit(0);
+  });
+  // Forzar salida si no cierra en 5s
+  setTimeout(() => {
+    console.error('[SHUTDOWN] Forzando salida');
+    process.exit(1);
+  }, 5000);
+}
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
