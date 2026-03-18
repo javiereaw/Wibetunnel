@@ -289,10 +289,9 @@ io.on('connection', (socket) => {
       if (entry.socketId === socket.id && entry.clientSessionId === clientSessionId) return;
     }
 
-    const safeEnv = { ...process.env };
-    delete safeEnv.WIBE_TOKEN;
-    delete safeEnv.WIBE_SSL_CERT;
-    delete safeEnv.WIBE_SSL_KEY;
+    const safeEnv = Object.fromEntries(
+      Object.entries(process.env).filter(([k]) => !k.startsWith('WIBE_'))
+    );
 
     let ptyProcess;
     try {

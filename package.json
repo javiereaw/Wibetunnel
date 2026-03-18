@@ -6,6 +6,25 @@
   "scripts": {
     "start": "node server.js"
   },
+  "author": "Javier Eaw <javiereaw@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/javiereaw/Wibetunnel.git"
+  },
+  "homepage": "https://github.com/javiereaw/Wibetunnel#readme",
+  "bugs": {
+    "url": "https://github.com/javiereaw/Wibetunnel/issues"
+  },
+  "keywords": [
+    "terminal",
+    "web-terminal",
+    "windows",
+    "powershell",
+    "xterm",
+    "socket.io",
+    "node-pty"
+  ],
   "dependencies": {
     "dotenv": "^16.4.7",
     "express": "^4.21.2",

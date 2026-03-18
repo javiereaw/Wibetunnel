@@ -33,7 +33,7 @@ Terminal web minimalista para Windows. Accede a tu terminal desde cualquier nave
 ## Instalacion
 
 ```bash
-git clone https://github.com/tu-usuario/Wibetunnel.git
+git clone https://github.com/javiereaw/Wibetunnel.git
 cd Wibetunnel
 npm install
 ```
@@ -114,6 +114,21 @@ La barra inferior tiene botones para: Ctrl+C, Tab, Flechas, Enter, Copy y Paste.
 
 - **Long press en tab** = renombrar sesion
 - **Boton Sel en file browser** = cd a carpeta
+
+### Cloudflare Tunnel (dominio propio)
+
+Si accedes via tunnel con un dominio HTTPS propio, añade el origen al `.env`:
+
+```env
+WIBE_ALLOWED_ORIGINS=https://tu-dominio.com
+```
+
+## Consideraciones de seguridad
+
+- Usa un token largo y aleatorio (`openssl rand -hex 32`)
+- En produccion, habilita HTTPS (`WIBE_SSL_CERT` / `WIBE_SSL_KEY`) o usa un tunnel con TLS
+- El servidor esta disenado para uso personal — no lo expongas sin autenticacion
+- Las variables de entorno con prefijo `WIBE_` no se heredan a los procesos de shell
 
 ## Licencia
 

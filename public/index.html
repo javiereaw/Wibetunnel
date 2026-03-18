@@ -1140,7 +1140,8 @@
             li.addEventListener('click', () => {
               const as = active();
               if (socket && socket.connected && as && as.persistentId) {
-                socket.emit('input', { id: as.persistentId, data: fullPath });
+                const safePath = fullPath.replace(/'/g, "''");
+                socket.emit('input', { id: as.persistentId, data: "'" + safePath + "'" });
               }
               closeFileBrowser();
             });
