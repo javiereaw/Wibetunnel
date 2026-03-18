@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh repo clone:*)",
+      "Bash(npm install:*)",
+      "Bash(gh api:*)",
+      "Bash(python:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(cloudflared tunnel list:*)",
+      "Bash(dir:*)",
+      "Bash(cloudflared tunnel create:*)",
+      "Bash(cloudflared tunnel route dns:*)",
+      "Bash(git -C \"C:\\\\www\\\\Wibetunnel\" status)",
+      "Bash(node:*)",
+      "Bash(cmd /c \"taskkill /F /PID 10380 && timeout /t 2 /nobreak >nul && cd /d C:\\\\www\\\\Wibetunnel && npm start\")",
+      "Bash(cmd /c \"netstat -ano | findstr 4020\")",
+      "Bash(powershell -Command:*)",
+      "WebSearch",
+      "Bash(cmd /c:*)"
+    ]
+  }
+}

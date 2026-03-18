@@ -23,6 +23,7 @@
 
     /* === Reset y base (mobile-first) === */
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { touch-action: manipulation; } /* Elimina 300ms tap delay en mobile */
     body {
       background: var(--bg); color: var(--fg);
       font-family: 'Courier New', monospace;
@@ -311,10 +312,16 @@
     /* === Indicador de reconexion === */
     #status {
       display: none; position: fixed;
-      top: 8px; right: 8px;
-      padding: 6px 12px; border-radius: 6px;
-      font-size: 12px; background: #ff4444;
-      color: white; z-index: 100;
+      top: 50%; left: 50%; transform: translate(-50%, -50%);
+      padding: 12px 24px; border-radius: 10px;
+      font-size: 14px; background: rgba(0,0,0,0.85);
+      color: #ff9800; z-index: 100;
+      text-align: center;
+      animation: pulse-status 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse-status {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
     }
   </style>
 </head>
@@ -403,16 +410,53 @@
   <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
   <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
   <script src="https://unpkg.com/xterm-addon-search@0.13.0/lib/xterm-addon-search.js"></script>
+  <script src="https://unpkg.com/xterm-addon-webgl@0.16.0/lib/xterm-addon-webgl.js"></script>
   <script src="/socket.io/socket.io.js"></script>
 
   <script>
     // === Estado global (declarar antes de todo) ===
     let socket, savedToken = '';
     let maxSessions = 5, sessionCounter = 0;
-    const sessions = new Map(); // id → { term, fitAddon, tabEl, panelEl }
+    const sessions = new Map(); // id → { term, fitAddon, tabEl, panelEl, persistentId }
     let activeId = null;
     let initialized = false;
     let currentFontSize = parseInt(localStorage.getItem('wibe-fontsize')) || 14;
+    let heartbeatInterval = null;
+
+    // === Persistencia cross-device: guardar/cargar sesiones en localStorage ===
+    function saveSessions() {
+      try {
+        const data = {};
+        sessions.forEach((s, id) => {
+          if (s.persistentId) data[s.persistentId] = { name: s.name };
+        });
+        localStorage.setItem('wibe-sessions', JSON.stringify(data));
+      } catch (_) {}
+    }
+
+    function loadSavedSessions() {
+      try {
+        return JSON.parse(localStorage.getItem('wibe-sessions') || '{}');
+      } catch { return {}; }
+    }
+
+    // === Deteccion de mobile ===
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || 'ontouchstart' in window;
+
+    // === Input batching: agrupar teclas antes de enviar ===
+    const INPUT_BATCH_MS = isMobile ? 12 : 4; // ms entre envios
+    const inputBatch = new Map(); // persistentId → { data, timer }
+
+    // Reconexion: mapeo persistentId ↔ clientSessionId
+    function getPersistentId(clientId) {
+      const s = sessions.get(clientId);
+      return s ? s.persistentId : null;
+    }
+    function getAllPersistentIds() {
+      const ids = [];
+      sessions.forEach(s => { if (s.persistentId) ids.push(s.persistentId); });
+      return ids;
+    }
 
     // === Sistema de temas (dark / light / auto) ===
     const THEMES = ['dark', 'light', 'auto'];
@@ -439,7 +483,7 @@
     document.getElementById('theme-toggle').addEventListener('click', () => {
       const idx = THEMES.indexOf(currentThemeMode);
       currentThemeMode = THEMES[(idx + 1) % THEMES.length];
-      localStorage.setItem('wibe-theme', currentThemeMode);
+      try { localStorage.setItem('wibe-theme', currentThemeMode); } catch(_) {}
       applyTheme(currentThemeMode);
     });
 
@@ -461,19 +505,26 @@
     // === Helpers: obtener sesion activa ===
     function active() { return sessions.get(activeId); }
 
-    // === Crear nueva sesion ===
-    function createSession() {
-      if (!socket || !socket.connected || sessions.size >= maxSessions) return;
-      const id = 'ses-' + (++sessionCounter);
+    // Interpretar escapes C-style en atributos HTML (data-key)
+    function parseEscapes(str) {
+      return str.replace(/\\x([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+               .replace(/\\t/g, '\t').replace(/\\r/g, '\r').replace(/\\n/g, '\n');
+    }
 
-      // Pedir al servidor crear PTY
-      socket.emit('session:create', id);
-
+    // === Crear UI local de sesion (tab + terminal) sin interaccion con servidor ===
+    function setupSessionUI(id, displayName) {
       // Crear pestana
       const tab = document.createElement('button');
       tab.className = 'tab';
       tab.dataset.id = id;
-      tab.innerHTML = `<span class="tab-name">Shell ${sessionCounter}</span> <span class="tab-close" data-id="${id}">&times;</span>`;
+      const tabName = document.createElement('span');
+      tabName.className = 'tab-name';
+      tabName.textContent = displayName;
+      const tabClose = document.createElement('span');
+      tabClose.className = 'tab-close';
+      tabClose.dataset.id = id;
+      tabClose.textContent = '\u00D7';
+      tab.append(tabName, document.createTextNode(' '), tabClose);
       tabsEl.insertBefore(tab, document.getElementById('tab-new'));
 
       // Crear panel del terminal
@@ -482,7 +533,7 @@
       panel.id = 'panel-' + id;
       terminalsEl.appendChild(panel);
 
-      // Crear instancia xterm
+      // Crear instancia xterm (optimizada para mobile)
       const cs = getComputedStyle(document.documentElement);
       const term = new Terminal({
         fontSize: currentFontSize || 14,
@@ -492,7 +543,10 @@
           foreground: cs.getPropertyValue('--term-fg').trim(),
           cursor: cs.getPropertyValue('--accent').trim()
         },
-        cursorBlink: true
+        cursorBlink: !isMobile,
+        scrollback: isMobile ? 1000 : 5000,
+        fastScrollModifier: 'alt',
+        smoothScrollDuration: 0,
       });
       const fitAddon = new FitAddon.FitAddon();
       const searchAddon = new SearchAddon.SearchAddon();
@@ -500,18 +554,62 @@
       term.loadAddon(searchAddon);
       term.open(panel);
 
-      // Input del usuario → servidor
+      // WebGL renderer: solo en desktop (en mobile causa lag)
+      if (!isMobile) {
+        try {
+          const webglAddon = new WebglAddon.WebglAddon();
+          webglAddon.onContextLoss(() => { webglAddon.dispose(); });
+          term.loadAddon(webglAddon);
+        } catch (e) {}
+      }
+
+      // Input del usuario → servidor (batched)
       term.onData((data) => {
-        if (socket && socket.connected) {
-          socket.emit('input', { id, data });
+        if (!socket || !socket.connected) return;
+        const pid = getPersistentId(id);
+        if (!pid) return;
+        let batch = inputBatch.get(pid);
+        if (!batch) {
+          batch = { data: '', timer: null };
+          inputBatch.set(pid, batch);
+        }
+        batch.data += data;
+        if (!batch.timer) {
+          batch.timer = setTimeout(() => {
+            const pending = batch.data;
+            batch.data = '';
+            batch.timer = null;
+            if (pending && socket && socket.connected) {
+              socket.emit('input', { id: pid, data: pending });
+            }
+          }, INPUT_BATCH_MS);
         }
       });
 
       // Focus al tocar
       panel.addEventListener('touchstart', () => term.focus());
 
-      sessions.set(id, { term, fitAddon, searchAddon, tabEl: tab, panelEl: panel, name: 'Shell ' + sessionCounter });
+      sessions.set(id, { term, fitAddon, searchAddon, tabEl: tab, panelEl: panel, name: displayName, persistentId: null });
+      return id;
+    }
+
+    // === Crear nueva sesion (crea PTY en servidor) ===
+    function createSession() {
+      if (!socket || !socket.connected || sessions.size >= maxSessions) return;
+      const id = 'ses-' + (++sessionCounter);
+      setupSessionUI(id, 'Shell ' + sessionCounter);
+      socket.emit('session:create', id);
       switchSession(id);
+    }
+
+    // === Adoptar sesion existente del servidor (cross-device) ===
+    function adoptSession(persistentId, name) {
+      if (sessions.size >= maxSessions) return null;
+      const id = 'ses-' + (++sessionCounter);
+      setupSessionUI(id, name || 'Shell ' + sessionCounter);
+      const s = sessions.get(id);
+      if (s) s.persistentId = persistentId;
+      return id;
     }
 
     // === Cambiar de sesion ===
@@ -528,8 +626,8 @@
       const s = active();
       setTimeout(() => {
         s.fitAddon.fit();
-if (socket && socket.connected) {
-          socket.emit('resize', { id, cols: s.term.cols, rows: s.term.rows });
+        if (socket && socket.connected && s.persistentId) {
+          socket.emit('resize', { id: s.persistentId, cols: s.term.cols, rows: s.term.rows });
         }
         s.term.focus();
       }, 50);
@@ -539,11 +637,12 @@ if (socket && socket.connected) {
     function closeSession(id) {
       const s = sessions.get(id);
       if (!s) return;
-      socket.emit('session:kill', id);
+      if (s.persistentId) socket.emit('session:kill', s.persistentId);
       s.term.dispose();
       s.tabEl.remove();
       s.panelEl.remove();
       sessions.delete(id);
+      saveSessions();
       // Si quedan sesiones, activar la ultima
       if (sessions.size > 0) {
         switchSession([...sessions.keys()].pop());
@@ -553,15 +652,29 @@ if (socket && socket.connected) {
     }
 
     // === Conectar al servidor ===
+    // Helper: buscar sesion local por persistentId
+    function findSessionByPersistentId(pid) {
+      for (const [id, s] of sessions) {
+        if (s.persistentId === pid) return { id, session: s };
+      }
+      return null;
+    }
+
     function connect() {
       savedToken = tokenInput.value.trim();
       if (!savedToken) return;
       errorEl.textContent = '';
 
-      socket = io({ reconnection: true, reconnectionDelay: 2000, reconnectionAttempts: Infinity });
+      socket = io({
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        reconnectionAttempts: Infinity,
+        timeout: 60000,
+        transports: ['websocket'], // Forzar WebSocket (polling causa latencia enorme en mobile)
+      });
 
       socket.on('connect', () => {
-        statusEl.style.display = 'none';
         socket.emit('auth', savedToken);
       });
 
@@ -582,15 +695,95 @@ if (socket && socket.connected) {
           });
         }
 
+        const serverSessions = (data && data.activeSessions) || [];
+        const savedMap = loadSavedSessions(); // { persistentId: { name } }
+
         if (!initialized) {
-          createSession();
+          // Primera conexion: descubrir sesiones del servidor (cross-device)
+          if (serverSessions.length > 0) {
+            statusEl.textContent = 'Recuperando sesiones...';
+            statusEl.style.display = 'block';
+
+            // Crear tabs locales para cada sesion del servidor
+            const pidsToReconnect = [];
+            for (const ss of serverSessions) {
+              const savedName = savedMap[ss.persistentId]
+                ? savedMap[ss.persistentId].name
+                : null;
+              adoptSession(ss.persistentId, savedName);
+              pidsToReconnect.push(ss.persistentId);
+            }
+
+            // Reconectar a todas
+            socket.emit('session:reconnect', pidsToReconnect, (restored) => {
+              statusEl.style.display = 'none';
+              if (restored && restored.length > 0) {
+                for (const r of restored) {
+                  const match = findSessionByPersistentId(r.persistentId);
+                  if (match) {
+                    if (r.buffer) match.session.term.write(r.buffer);
+                    setTimeout(() => {
+                      match.session.fitAddon.fit();
+                      socket.emit('resize', {
+                        id: r.persistentId,
+                        cols: match.session.term.cols,
+                        rows: match.session.term.rows
+                      });
+                    }, 50);
+                  }
+                }
+                // Activar la primera sesion
+                const firstId = [...sessions.keys()][0];
+                if (firstId) switchSession(firstId);
+              } else {
+                cleanupAllSessions();
+                createSession();
+              }
+              saveSessions();
+            });
+          } else {
+            // No hay sesiones en el servidor: crear nueva
+            createSession();
+          }
           initialized = true;
+          if (serverSessions.length === 0) statusEl.style.display = 'none';
         } else {
-          // Reconexion: recrear sesiones
-          sessions.clear();
-          terminalsEl.innerHTML = '';
-          tabsEl.querySelectorAll('.tab').forEach(t => t.remove());
-          createSession();
+          // Reconexion (misma pestaña): intentar recuperar sesiones en memoria
+          const pids = getAllPersistentIds();
+          if (pids.length > 0) {
+            statusEl.textContent = 'Reconectando...';
+            statusEl.style.display = 'block';
+
+            socket.emit('session:reconnect', pids, (restored) => {
+              statusEl.style.display = 'none';
+
+              if (restored && restored.length > 0) {
+                for (const r of restored) {
+                  const match = findSessionByPersistentId(r.persistentId);
+                  if (match) {
+                    if (r.buffer) match.session.term.write(r.buffer);
+                    setTimeout(() => {
+                      match.session.fitAddon.fit();
+                      socket.emit('resize', {
+                        id: r.persistentId,
+                        cols: match.session.term.cols,
+                        rows: match.session.term.rows
+                      });
+                    }, 50);
+                  }
+                }
+                const s = active();
+                if (s) s.term.focus();
+              } else {
+                cleanupAllSessions();
+                createSession();
+              }
+              saveSessions();
+            });
+          } else {
+            statusEl.style.display = 'none';
+            createSession();
+          }
         }
       });
 
@@ -604,42 +797,110 @@ if (socket && socket.connected) {
         socket.disconnect();
       });
 
+      // Heartbeat: mantiene la sesion viva en el servidor
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+      heartbeatInterval = setInterval(() => {
+        if (socket && socket.connected) socket.emit('heartbeat');
+      }, 30000);
+
       socket.on('session:timeout', () => {
-        alert('Sesion cerrada por inactividad');
-        location.reload();
+        // En lugar de recargar, intentar reconectar automaticamente
+        statusEl.textContent = 'Sesion expirada, reconectando...';
+        statusEl.style.display = 'block';
+        socket.disconnect();
+        setTimeout(() => {
+          socket.connect();
+        }, 1000);
       });
 
-      // Output dirigido a sesion especifica
+      // El servidor confirma creacion y envia persistentId
+      socket.on('session:created', (data) => {
+        if (data && data.clientSessionId && data.persistentId) {
+          const s = sessions.get(data.clientSessionId);
+          if (s) {
+            s.persistentId = data.persistentId;
+            saveSessions();
+          }
+        }
+      });
+
+      // Sesion tomada por otro dispositivo (cross-device takeover)
+      socket.on('session:taken', (persistentId) => {
+        const match = findSessionByPersistentId(persistentId);
+        if (match) {
+          match.session.term.write('\r\n\x1b[33m[Sesion transferida a otro dispositivo]\x1b[0m\r\n');
+          match.session.persistentId = null; // Ya no es nuestra
+          saveSessions();
+        }
+      });
+
+      // Output dirigido por persistentId (con batching para fluidez)
+      const outputBuffers = new Map(); // persistentId → { data, raf }
       socket.on('output', ({ id, data }) => {
-        const s = sessions.get(id);
-        if (s) { s.term.write(data); trackOutput(id); }
+        const match = findSessionByPersistentId(id);
+        if (!match) return;
+        let buf = outputBuffers.get(id);
+        if (!buf) {
+          buf = { data: '', raf: null };
+          outputBuffers.set(id, buf);
+        }
+        buf.data += data;
+        if (!buf.raf) {
+          buf.raf = requestAnimationFrame(() => {
+            const pending = buf.data;
+            buf.data = '';
+            buf.raf = null;
+            match.session.term.write(pending);
+            trackOutput(match.id);
+          });
+        }
       });
 
-      // Sesion terminada en servidor
-      socket.on('session:exit', (id) => {
-        const s = sessions.get(id);
-        if (s) s.term.write('\r\n[Sesion terminada]\r\n');
+      // Sesion terminada en servidor (usa persistentId)
+      socket.on('session:exit', (persistentId) => {
+        const match = findSessionByPersistentId(persistentId);
+        if (match) match.session.term.write('\r\n[Sesion terminada]\r\n');
       });
 
       socket.on('disconnect', () => {
+        statusEl.textContent = 'Reconectando...';
         statusEl.style.display = 'block';
+        // Limpiar buffers de output pendientes
+        outputBuffers.forEach(buf => { if (buf.raf) cancelAnimationFrame(buf.raf); });
+        outputBuffers.clear();
       });
     }
 
-    // === Resize global: ajustar sesion activa ===
+    // Limpiar todas las sesiones locales (UI)
+    function cleanupAllSessions() {
+      sessions.forEach(s => {
+        s.term.dispose();
+        s.tabEl.remove();
+        s.panelEl.remove();
+      });
+      sessions.clear();
+      activeId = null;
+    }
+
+    // === Resize global: ajustar sesion activa (debounced en mobile) ===
+    let resizeTimer = null;
     function doResize() {
       const s = active();
       if (!s) return;
       s.fitAddon.fit();
-      if (socket && socket.connected) {
-        socket.emit('resize', { id: activeId, cols: s.term.cols, rows: s.term.rows });
+      if (socket && socket.connected && s.persistentId) {
+        socket.emit('resize', { id: s.persistentId, cols: s.term.cols, rows: s.term.rows });
       }
     }
-    window.addEventListener('resize', doResize);
+    function debouncedResize() {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(doResize, isMobile ? 150 : 50);
+    }
+    window.addEventListener('resize', debouncedResize);
 
     // === Ajustar terminal cuando aparece el teclado virtual ===
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', doResize);
+      window.visualViewport.addEventListener('resize', debouncedResize);
     }
 
     // === Click en pestanas (cambiar o cerrar) ===
@@ -740,7 +1001,7 @@ if (socket && socket.connected) {
     function applyFontSize(size) {
       size = Math.max(8, Math.min(28, size));
       currentFontSize = size;
-      localStorage.setItem('wibe-fontsize', size);
+      try { localStorage.setItem('wibe-fontsize', size); } catch(_) {}
       sessions.forEach((s) => {
         s.term.options.fontSize = size;
       });
@@ -754,8 +1015,11 @@ if (socket && socket.connected) {
     document.getElementById('shortcuts').addEventListener('click', (e) => {
       const btn = e.target.closest('button');
       if (!btn || !socket || !socket.connected || !activeId) return;
-      socket.emit('input', { id: activeId, data: btn.dataset.cmd + '\r' });
-      const s = active(); if (s) s.term.focus();
+      const s = active();
+      if (s && s.persistentId) {
+        socket.emit('input', { id: s.persistentId, data: btn.dataset.cmd + '\r' });
+        s.term.focus();
+      }
     });
 
     // === Botones flotantes: enviar tecla especial ===
@@ -763,8 +1027,11 @@ if (socket && socket.connected) {
       const btn = e.target.closest('button');
       if (!btn || !socket || !socket.connected || !activeId) return;
       if (btn.dataset.action) return;
-      socket.emit('input', { id: activeId, data: btn.dataset.key });
-      const s = active(); if (s) s.term.focus();
+      const s = active();
+      if (s && s.persistentId) {
+        socket.emit('input', { id: s.persistentId, data: parseEscapes(btn.dataset.key) });
+        s.term.focus();
+      }
     });
 
     // === Clipboard: copiar seleccion del terminal ===
@@ -777,7 +1044,7 @@ if (socket && socket.connected) {
         navigator.clipboard.writeText(sel).then(() => {
           e.target.textContent = 'OK!';
           setTimeout(() => e.target.textContent = 'Copy', 800);
-        });
+        }).catch(() => {});
       }
     });
 
@@ -797,11 +1064,12 @@ if (socket && socket.connected) {
 
     document.getElementById('paste-send').addEventListener('click', () => {
       const text = pasteInput.value;
-      if (text && socket && socket.connected && activeId) {
-        socket.emit('input', { id: activeId, data: text });
+      const s = active();
+      if (text && socket && socket.connected && s && s.persistentId) {
+        socket.emit('input', { id: s.persistentId, data: text });
       }
       pasteOverlay.style.display = 'none';
-      const s = active(); if (s) s.term.focus();
+      if (s) s.term.focus();
     });
 
     document.getElementById('paste-cancel').addEventListener('click', () => {
@@ -853,8 +1121,12 @@ if (socket && socket.connected) {
             });
             // Click en "Sel" → cd a la carpeta en terminal
             selBtn.addEventListener('click', () => {
-              if (socket && socket.connected && activeId) {
-                socket.emit('input', { id: activeId, data: 'cd "' + fullPath + '"\r' });
+              const as = active();
+              if (socket && socket.connected && as && as.persistentId) {
+                // Single-quoted strings in PowerShell: no variable expansion, no escape sequences
+                // Only escape needed: single quote → two single quotes
+                const safePath = fullPath.replace(/'/g, "''");
+                socket.emit('input', { id: as.persistentId, data: "cd '" + safePath + "'\r" });
               }
               closeFileBrowser();
             });
@@ -866,8 +1138,9 @@ if (socket && socket.connected) {
             nameSpan.textContent = item.name;
             li.append(icon, nameSpan);
             li.addEventListener('click', () => {
-              if (socket && socket.connected && activeId) {
-                socket.emit('input', { id: activeId, data: fullPath });
+              const as = active();
+              if (socket && socket.connected && as && as.persistentId) {
+                socket.emit('input', { id: as.persistentId, data: fullPath });
               }
               closeFileBrowser();
             });
@@ -899,12 +1172,13 @@ if (socket && socket.connected) {
     updateNotifBtn();
 
     notifBtn.addEventListener('click', async () => {
+      if (typeof Notification === 'undefined') return;
       if (!notifEnabled && Notification.permission === 'default') {
         await Notification.requestPermission();
       }
       if (Notification.permission === 'denied') return;
       notifEnabled = !notifEnabled;
-      localStorage.setItem('wibe-notif', notifEnabled);
+      try { localStorage.setItem('wibe-notif', notifEnabled); } catch(_) {}
       updateNotifBtn();
     });
 
@@ -920,7 +1194,9 @@ if (socket && socket.connected) {
       // Pagina en background: si no habia timer activo, el comando es largo → notificar
       if (!outputTimers.has(sessionId)) {
         const num = sessionId.replace('ses-', '');
-        new Notification('Wibetunnel', { body: `Shell ${num}: comando completado`, icon: '/favicon.ico' });
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          new Notification('Wibetunnel', { body: `Shell ${num}: comando completado`, icon: '/favicon.ico' });
+        }
       }
       clearTimeout(outputTimers.get(sessionId));
       outputTimers.set(sessionId, setTimeout(() => outputTimers.delete(sessionId), 3000));
@@ -936,9 +1212,9 @@ if (socket && socket.connected) {
       const cmds = [
         { name: 'Nueva sesion', hint: '', action: () => createSession() },
         { name: 'Cerrar sesion', hint: '', action: () => { if (activeId) closeSession(activeId); } },
-        { name: 'Tema: Dark', hint: '', action: () => { currentThemeMode = 'dark'; localStorage.setItem('wibe-theme', 'dark'); applyTheme('dark'); } },
-        { name: 'Tema: Light', hint: '', action: () => { currentThemeMode = 'light'; localStorage.setItem('wibe-theme', 'light'); applyTheme('light'); } },
-        { name: 'Tema: Auto', hint: '', action: () => { currentThemeMode = 'auto'; localStorage.setItem('wibe-theme', 'auto'); applyTheme('auto'); } },
+        { name: 'Tema: Dark', hint: '', action: () => { currentThemeMode = 'dark'; try { localStorage.setItem('wibe-theme', 'dark'); } catch(_){} applyTheme('dark'); } },
+        { name: 'Tema: Light', hint: '', action: () => { currentThemeMode = 'light'; try { localStorage.setItem('wibe-theme', 'light'); } catch(_){} applyTheme('light'); } },
+        { name: 'Tema: Auto', hint: '', action: () => { currentThemeMode = 'auto'; try { localStorage.setItem('wibe-theme', 'auto'); } catch(_){} applyTheme('auto'); } },
         { name: 'Limpiar terminal', hint: 'cls', action: () => { const s = active(); if (s) s.term.clear(); } },
         { name: 'Copiar seleccion', hint: '', action: () => { const s = active(); if (s) { const sel = s.term.getSelection(); if (sel) navigator.clipboard.writeText(sel); } } },
         { name: 'Pegar', hint: '', action: () => document.getElementById('btn-paste').click() },
@@ -974,7 +1250,15 @@ if (socket && socket.connected) {
       paletteListEl.innerHTML = '';
       cmds.forEach((c, i) => {
         const li = document.createElement('li');
-        li.innerHTML = `<span>${c.name}</span>${c.hint ? `<span class="hint">${c.hint}</span>` : ''}`;
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = c.name;
+        li.appendChild(nameSpan);
+        if (c.hint) {
+          const hintSpan = document.createElement('span');
+          hintSpan.className = 'hint';
+          hintSpan.textContent = c.hint;
+          li.appendChild(hintSpan);
+        }
         if (i === paletteIdx) li.classList.add('selected');
         li.addEventListener('click', () => { closePalette(); c.action(); });
         paletteListEl.appendChild(li);
