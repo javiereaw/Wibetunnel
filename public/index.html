@@ -365,6 +365,7 @@
       <button data-key="\x1b[A">&#x2191;</button>
       <button data-key="\x1b[B">&#x2193;</button>
       <button data-key="\r">Enter</button>
+      <button id="btn-bottom" data-action="bottom" title="Ir al final" aria-label="Ir al final">&#x2913;</button>
       <button id="btn-copy" data-action="copy">Copy</button>
       <button id="btn-paste" data-action="paste">Paste</button>
     </div>
@@ -1011,26 +1012,41 @@
     document.getElementById('btn-font-up').addEventListener('click', () => applyFontSize(currentFontSize + 2));
     document.getElementById('btn-font-down').addEventListener('click', () => applyFontSize(currentFontSize - 2));
 
+    // En mobile evitamos term.focus() tras pulsar botones porque dispara el teclado virtual.
+    // mousedown preventDefault: el boton no roba el foco al textarea del terminal.
+    function preventFocusSteal(e) {
+      const btn = e.target.closest('button');
+      if (btn) e.preventDefault();
+    }
+
     // === Atajos: enviar comando + Enter a la sesion activa ===
-    document.getElementById('shortcuts').addEventListener('click', (e) => {
+    const shortcutsEl = document.getElementById('shortcuts');
+    shortcutsEl.addEventListener('mousedown', preventFocusSteal);
+    shortcutsEl.addEventListener('click', (e) => {
       const btn = e.target.closest('button');
       if (!btn || !socket || !socket.connected || !activeId) return;
       const s = active();
       if (s && s.persistentId) {
         socket.emit('input', { id: s.persistentId, data: btn.dataset.cmd + '\r' });
-        s.term.focus();
+        if (!isMobile) s.term.focus();
       }
     });
 
     // === Botones flotantes: enviar tecla especial ===
+    buttonsEl.addEventListener('mousedown', preventFocusSteal);
     buttonsEl.addEventListener('click', (e) => {
       const btn = e.target.closest('button');
       if (!btn || !socket || !socket.connected || !activeId) return;
+      if (btn.dataset.action === 'bottom') {
+        const s = active();
+        if (s) s.term.scrollToBottom();
+        return;
+      }
       if (btn.dataset.action) return;
       const s = active();
       if (s && s.persistentId) {
         socket.emit('input', { id: s.persistentId, data: parseEscapes(btn.dataset.key) });
-        s.term.focus();
+        if (!isMobile) s.term.focus();
       }
     });
 
