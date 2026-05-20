@@ -1018,10 +1018,19 @@
       const btn = e.target.closest('button');
       if (btn) e.preventDefault();
     }
+    // En mobile, al tocar un boton de accion, desenfocamos el textarea del terminal
+    // para evitar que el browser reabra el teclado virtual.
+    function blurActiveOnTouch(e) {
+      if (!isMobile) return;
+      if (!e.target.closest('button')) return;
+      const a = document.activeElement;
+      if (a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT')) a.blur();
+    }
 
     // === Atajos: enviar comando + Enter a la sesion activa ===
     const shortcutsEl = document.getElementById('shortcuts');
     shortcutsEl.addEventListener('mousedown', preventFocusSteal);
+    shortcutsEl.addEventListener('touchstart', blurActiveOnTouch, { passive: true });
     shortcutsEl.addEventListener('click', (e) => {
       const btn = e.target.closest('button');
       if (!btn || !socket || !socket.connected || !activeId) return;
@@ -1034,6 +1043,7 @@
 
     // === Botones flotantes: enviar tecla especial ===
     buttonsEl.addEventListener('mousedown', preventFocusSteal);
+    buttonsEl.addEventListener('touchstart', blurActiveOnTouch, { passive: true });
     buttonsEl.addEventListener('click', (e) => {
       const btn = e.target.closest('button');
       if (!btn || !socket || !socket.connected || !activeId) return;
