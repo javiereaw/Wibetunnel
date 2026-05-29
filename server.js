@@ -36,6 +36,9 @@ const SESSION_TIMEOUT = parseInt(process.env.WIBE_TIMEOUT) || 0;
 const RECONNECT_GRACE = parseInt(process.env.WIBE_RECONNECT_GRACE) || 1800; // segundos (30 min para cross-device)
 const BUFFER_SIZE = parseInt(process.env.WIBE_BUFFER_SIZE) || 51200;       // bytes
 const MAX_CONNECTIONS = parseInt(process.env.WIBE_MAX_CONN, 10) || 10;
+const AUTH_TIMEOUT_MS = 30000;
+const AUTH_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+const SHUTDOWN_GRACE_MS = 5000;
 // HTTPS: rutas a cert y key (opcional)
 const SSL_CERT = process.env.WIBE_SSL_CERT || '';
 const SSL_KEY = process.env.WIBE_SSL_KEY || '';
@@ -43,6 +46,16 @@ const SSL_KEY = process.env.WIBE_SSL_KEY || '';
 const ALLOWED_ORIGINS = new Set(
   (process.env.WIBE_ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean)
 );
+
+// Solo confiar en X-Forwarded-For si el servidor está detrás de un proxy conocido
+const TRUST_PROXY = process.env.WIBE_TRUST_PROXY === 'true';
+function getClientIp(socket) {
+  if (TRUST_PROXY) {
+    const xff = socket.handshake.headers['x-forwarded-for'];
+    if (xff) return xff.split(',')[0].trim();
+  }
+  return socket.handshake.address;
+}
 
 // Validar que el token esté configurado (obligatorio)
 if (!TOKEN) {
@@ -75,8 +88,12 @@ const io = new Server(server, {
   pingTimeout: 60000,
   maxHttpBufferSize: 1e6,
   allowRequest: (req, callback) => {
+    if (io && io.engine && io.engine.clientsCount >= MAX_CONNECTIONS) {
+      console.warn('[CONN] Rechazando: max conexiones alcanzado');
+      return callback('Too many connections', false);
+    }
     const origin = req.headers.origin;
-    if (!origin) return callback(null, true); // same-origin (no Origin header)
+    if (!origin) return callback(null, true);
     const host = req.headers.host || `localhost:${PORT}`;
     const proto = (SSL_CERT && SSL_KEY) ? 'https' : 'http';
     if (origin === `${proto}://${host}`) return callback(null, true);
@@ -101,10 +118,15 @@ function checkRateLimit(ip) {
 }
 
 function recordFailedAuth(ip) {
-  const entry = authAttempts.get(ip) || { count: 0, blockedUntil: null };
+  const now = Date.now();
+  let entry = authAttempts.get(ip);
+  const windowMs = RATE_WINDOW * 60 * 1000;
+  if (!entry || (now - entry.firstAttempt) > windowMs) {
+    entry = { count: 0, firstAttempt: now, blockedUntil: null };
+  }
   entry.count++;
   if (entry.count >= RATE_MAX) {
-    entry.blockedUntil = Date.now() + RATE_WINDOW * 60 * 1000;
+    entry.blockedUntil = now + windowMs;
     console.log(`[RATE] IP ${ip} bloqueada por ${RATE_WINDOW} min (${entry.count} intentos fallidos)`);
   }
   authAttempts.set(ip, entry);
@@ -122,7 +144,7 @@ setInterval(() => {
       authAttempts.delete(ip);
     }
   }
-}, 60 * 60 * 1000).unref();
+}, AUTH_CLEANUP_INTERVAL_MS).unref();
 
 // Security headers
 app.use((req, res, next) => {
@@ -131,9 +153,9 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Content-Security-Policy', [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' https://unpkg.com",
-    "style-src 'self' 'unsafe-inline' https://unpkg.com",
-    "font-src 'self' https://unpkg.com data:",
+    "script-src 'self'",
+    "style-src 'self'",
+    "font-src 'self' data:",
     "connect-src 'self' ws: wss:",
     "img-src 'self' data:",
     "frame-ancestors 'none'",
@@ -212,20 +234,15 @@ function getActiveSessionsList() {
 
 // === Manejar conexiones WebSocket ===
 io.on('connection', (socket) => {
-  // Connection limit
-  if (io.sockets.sockets.size > MAX_CONNECTIONS) {
-    socket.disconnect(true);
-    return;
-  }
   let authenticated = false;
-  let lastActivity = Date.now();
+  let socketLastActivity = Date.now();
   let timeoutChecker = null;
-  const ip = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+  const ip = getClientIp(socket);
 
   // Disconnect sockets that never authenticate
   const authTimer = setTimeout(() => {
     if (!authenticated) socket.disconnect(true);
-  }, 30000);
+  }, AUTH_TIMEOUT_MS);
 
   // Inicializar set de sesiones para este socket
   socketSessions.set(socket.id, new Set());
@@ -267,8 +284,15 @@ io.on('connection', (socket) => {
     // Iniciar session timeout si esta configurado
     if (SESSION_TIMEOUT > 0) {
       timeoutChecker = setInterval(() => {
-        const elapsed = (Date.now() - lastActivity) / 1000 / 60;
-        if (elapsed >= SESSION_TIMEOUT) {
+        const myPtys = socketSessions.get(socket.id);
+        let mostRecent = socketLastActivity;
+        if (myPtys) {
+          for (const pid of myPtys) {
+            const e = ptyStore.get(pid);
+            if (e && e.lastActivity > mostRecent) mostRecent = e.lastActivity;
+          }
+        }
+        if ((Date.now() - mostRecent) / 1000 / 60 >= SESSION_TIMEOUT) {
           console.log(`[TIMEOUT] Socket ${ip} desconectado por inactividad (${SESSION_TIMEOUT} min)`);
           socket.emit('session:timeout');
           socket.disconnect(true);
@@ -314,7 +338,8 @@ io.on('connection', (socket) => {
       buffer: '',
       socketId: socket.id,
       cleanupTimer: null,
-      clientSessionId
+      clientSessionId,
+      lastActivity: Date.now()
     };
     ptyStore.set(persistentId, entry);
     if (myPtys) myPtys.add(persistentId);
@@ -322,7 +347,8 @@ io.on('connection', (socket) => {
     // Reenviar output al navegador (batched) y bufferear
     ptyProcess.onData((data) => {
       appendBuffer(entry, data);
-      lastActivity = Date.now();
+      entry.lastActivity = Date.now();
+      socketLastActivity = entry.lastActivity;
       batchOutput(persistentId, data);
     });
 
@@ -352,6 +378,7 @@ io.on('connection', (socket) => {
   // Reconectar sesiones existentes
   socket.on('session:reconnect', (persistentIds, callback) => {
     if (!authenticated || typeof callback !== 'function') return;
+    if (!Array.isArray(persistentIds)) { callback([]); return; }
     const restored = [];
     const myPtys = socketSessions.get(socket.id);
 
@@ -418,15 +445,18 @@ io.on('connection', (socket) => {
   // Input del navegador → terminal (usa persistentId)
   socket.on('input', ({ id, data }) => {
     if (authenticated && typeof id === 'string' && typeof data === 'string' && data.length <= 65536) {
-      lastActivity = Date.now();
+      socketLastActivity = Date.now();
       const entry = ptyStore.get(id);
-      if (entry) entry.pty.write(data);
+      if (entry) {
+        entry.lastActivity = Date.now();
+        entry.pty.write(data);
+      }
     }
   });
 
   // Heartbeat: mantiene la sesion viva (el cliente lo envia periodicamente)
   socket.on('heartbeat', () => {
-    if (authenticated) lastActivity = Date.now();
+    if (authenticated) socketLastActivity = Date.now();
   });
 
   // Resize de una sesion especifica (usa persistentId)
@@ -435,7 +465,7 @@ io.on('connection', (socket) => {
         typeof id === 'string' &&
         Number.isInteger(cols) && cols >= 1 && cols <= 500 &&
         Number.isInteger(rows) && rows >= 1 && rows <= 200) {
-      lastActivity = Date.now();
+      socketLastActivity = Date.now();
       const entry = ptyStore.get(id);
       if (entry) {
         try { entry.pty.resize(cols, rows); } catch (e) {}
@@ -444,9 +474,13 @@ io.on('connection', (socket) => {
   });
 
   // File browser: listar directorio
-  socket.on('fs:list', (dirPath, callback) => {
+  socket.on('fs:list', async (dirPath, callback) => {
     if (!authenticated) return;
     if (typeof callback !== 'function') return;
+    if (typeof dirPath !== 'string' && dirPath != null) {
+      callback({ path: '', items: [], error: 'No se pudo listar el directorio' });
+      return;
+    }
     const resolved = path.resolve(dirPath || CWD);
     const normalizedCwd = path.resolve(CWD);
     // Case-insensitive comparison for Windows (NTFS is case-insensitive)
@@ -457,7 +491,7 @@ io.on('connection', (socket) => {
       return;
     }
     try {
-      const entries = fs.readdirSync(resolved, { withFileTypes: true });
+      const entries = await fs.promises.readdir(resolved, { withFileTypes: true });
       const items = entries.map(e => ({
         name: e.name,
         isDir: e.isDirectory(),
@@ -467,7 +501,8 @@ io.on('connection', (socket) => {
       });
       callback({ path: resolved, items, error: null });
     } catch (err) {
-      callback({ path: resolved, items: [], error: err.message });
+      console.error('[FS] Error listando directorio:', err.message);
+      callback({ path: resolved, items: [], error: 'No se pudo listar el directorio' });
     }
   });
 
@@ -541,7 +576,7 @@ function gracefulShutdown(signal) {
   setTimeout(() => {
     console.error('[SHUTDOWN] Forzando salida');
     process.exit(1);
-  }, 5000);
+  }, SHUTDOWN_GRACE_MS);
 }
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));

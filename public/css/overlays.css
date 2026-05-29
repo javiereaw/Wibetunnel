@@ -1,0 +1,133 @@
+#paste-overlay {
+  display: none; position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--overlay-bg); z-index: 200;
+  flex-direction: column; align-items: center;
+  justify-content: center; gap: 12px; padding: 20px;
+}
+#paste-overlay textarea {
+  width: 90%; max-width: 400px; height: 120px;
+  padding: 12px; font-size: 15px;
+  font-family: 'Courier New', monospace;
+  background: var(--secondary); color: var(--fg);
+  border: 1px solid var(--accent); border-radius: 8px;
+  outline: none; resize: none;
+}
+#paste-overlay .paste-actions {
+  display: flex; gap: 10px;
+}
+#paste-overlay button {
+  padding: 10px 24px; font-size: 15px;
+  border: none; border-radius: 8px;
+  cursor: pointer; min-height: 44px;
+  font-family: 'Courier New', monospace;
+}
+#paste-overlay .btn-send { background: var(--accent); color: var(--bg); font-weight: bold; }
+#paste-overlay .btn-cancel { background: var(--btn-border); color: var(--fg); }
+#palette {
+  display: none; position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--overlay-bg); z-index: 300;
+  flex-direction: column; align-items: center;
+  padding: 15vh 16px 0;
+}
+#palette-box {
+  width: 100%; max-width: 420px;
+  background: var(--secondary); border: 1px solid var(--btn-border);
+  border-radius: 10px; overflow: hidden;
+}
+#palette-input {
+  width: 100%; padding: 14px 16px;
+  font-size: 15px; font-family: 'Courier New', monospace;
+  background: transparent; color: var(--fg);
+  border: none; border-bottom: 1px solid var(--btn-border);
+  outline: none;
+}
+#palette-list {
+  max-height: 260px; overflow-y: auto; list-style: none;
+}
+#palette-list li {
+  padding: 10px 16px; font-size: 14px;
+  font-family: 'Courier New', monospace;
+  cursor: pointer; display: flex;
+  justify-content: space-between; align-items: center;
+  color: var(--fg);
+}
+#palette-list li.selected { background: var(--accent); color: var(--bg); }
+#palette-list li .hint {
+  font-size: 11px; opacity: 0.5;
+}
+#filebrowser {
+  display: none; position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--overlay-bg); z-index: 250;
+  flex-direction: column; align-items: center;
+  padding: 8vh 16px 0;
+}
+#fb-box {
+  width: 100%; max-width: 440px;
+  background: var(--secondary); border: 1px solid var(--btn-border);
+  border-radius: 10px; overflow: hidden; display: flex;
+  flex-direction: column; max-height: 70vh;
+}
+#fb-path {
+  padding: 10px 14px; font-size: 12px;
+  color: var(--accent); background: var(--bar-bg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#fb-list {
+  flex: 1; overflow-y: auto; list-style: none;
+}
+#fb-list li {
+  padding: 10px 14px; font-size: 14px;
+  font-family: 'Courier New', monospace;
+  cursor: pointer; display: flex; gap: 8px;
+  align-items: center; color: var(--fg);
+  border-bottom: 1px solid var(--btn-border);
+}
+#fb-list li:active { background: var(--btn-bg); }
+#fb-list li .fb-icon { width: 20px; text-align: center; flex-shrink: 0; }
+#fb-list li .fb-select {
+  margin-left: auto; padding: 6px 10px; font-size: 12px;
+  font-family: 'Courier New', monospace;
+  background: var(--accent); color: var(--bg);
+  border: none; border-radius: 5px; cursor: pointer;
+  flex-shrink: 0; min-height: 32px;
+}
+#fb-list li .fb-select:active { opacity: 0.7; }
+#search-bar {
+  display: none; position: absolute; top: 0; right: 0;
+  z-index: 60; background: var(--secondary);
+  border: 1px solid var(--btn-border); border-radius: 0 0 0 8px;
+  padding: 6px 8px; gap: 6px; align-items: center;
+}
+#search-bar.visible { display: flex; }
+#search-bar input {
+  width: 180px; padding: 6px 10px; font-size: 14px;
+  font-family: 'Courier New', monospace;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--btn-border); border-radius: 5px;
+  outline: none;
+}
+#search-bar input:focus { border-color: var(--accent); }
+#search-bar button {
+  min-width: 32px; min-height: 32px; font-size: 14px;
+  background: var(--btn-bg); color: var(--fg);
+  border: 1px solid var(--btn-border); border-radius: 5px;
+  cursor: pointer; display: flex; align-items: center;
+  justify-content: center;
+}
+#search-bar button:active { background: var(--accent); color: var(--bg); }
+#status {
+  display: none; position: fixed;
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+  padding: 12px 24px; border-radius: 10px;
+  font-size: 14px; background: rgba(0,0,0,0.85);
+  color: #ff9800; z-index: 100;
+  text-align: center;
+  animation: pulse-status 1.5s ease-in-out infinite;
+}
+@keyframes pulse-status {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
