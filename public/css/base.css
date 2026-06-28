@@ -3,6 +3,7 @@
   --accent: #00d4ff; --btn-bg: #2a2a4a; --btn-border: #444;
   --bar-bg: #0f0f23; --overlay-bg: rgba(0,0,0,0.7);
   --term-bg: #1a1a2e; --term-fg: #e0e0e0;
+  --mono-font: var(--mono-font);
 }
 [data-theme="light"] {
   --bg: #f0f0f0; --fg: #1a1a2e; --secondary: #dde;
@@ -14,7 +15,7 @@
 html { touch-action: manipulation; }
 body {
   background: var(--bg); color: var(--fg);
-  font-family: 'Courier New', monospace;
+  font-family: var(--mono-font);
   height: 100vh; height: 100dvh;
   overflow: hidden;
 }

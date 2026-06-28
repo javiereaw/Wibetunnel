@@ -1,10 +1,39 @@
 import { state, isMobile, HEARTBEAT_INTERVAL_MS, saveSessions, loadSavedSessions, findSessionByPersistentId, trackOutput } from './state.js';
 import { createSession, adoptSession, switchSession, cleanupAllSessions } from './sessions.js';
+import { initShortcuts } from './settings.js';
 
 const outputBuffers = new Map();
 let heartbeatInterval = null;
 let reconnectBackoffMs = 1000;
 const MAX_BACKOFF_MS = 30000;
+
+// Restaurar sesiones persistentes: emite session:reconnect, escribe buffer, reajusta terminal
+function doReconnect(pids, statusEl, onRestored) {
+  state.socket.emit('session:reconnect', pids, (restored) => {
+    statusEl.style.display = 'none';
+    if (restored && restored.length > 0) {
+      for (const r of restored) {
+        const match = findSessionByPersistentId(r.persistentId);
+        if (match) {
+          if (r.buffer) match.session.term.write(r.buffer);
+          setTimeout(() => {
+            match.session.fitAddon.fit();
+            state.socket.emit('resize', {
+              id: r.persistentId,
+              cols: match.session.term.cols,
+              rows: match.session.term.rows
+            });
+          }, 50);
+        }
+      }
+      if (onRestored) onRestored();
+    } else {
+      cleanupAllSessions();
+      createSession();
+    }
+    saveSessions();
+  });
+}
 
 export function connect() {
   state.savedToken = document.getElementById('token').value.trim();
@@ -34,17 +63,9 @@ export function connect() {
     document.getElementById('login').style.display = 'none';
     document.getElementById('terminal-container').style.display = 'flex';
     if (data && data.maxSessions) state.maxSessions = data.maxSessions;
+    if (data && data.shellType) state.shellType = data.shellType;
 
-    if (!state.initialized && data && data.shortcuts && data.shortcuts.length) {
-      const shortcutsEl = document.getElementById('shortcuts');
-      shortcutsEl.style.display = 'flex';
-      data.shortcuts.forEach(s => {
-        const btn = document.createElement('button');
-        btn.textContent = s.label;
-        btn.dataset.cmd = s.cmd;
-        shortcutsEl.appendChild(btn);
-      });
-    }
+    initShortcuts((data && data.shortcuts) || []);
 
     const serverSessions = (data && data.activeSessions) || [];
     const savedMap = loadSavedSessions();
@@ -62,30 +83,9 @@ export function connect() {
           pidsToReconnect.push(ss.persistentId);
         }
 
-        state.socket.emit('session:reconnect', pidsToReconnect, (restored) => {
-          statusEl.style.display = 'none';
-          if (restored && restored.length > 0) {
-            for (const r of restored) {
-              const match = findSessionByPersistentId(r.persistentId);
-              if (match) {
-                if (r.buffer) match.session.term.write(r.buffer);
-                setTimeout(() => {
-                  match.session.fitAddon.fit();
-                  state.socket.emit('resize', {
-                    id: r.persistentId,
-                    cols: match.session.term.cols,
-                    rows: match.session.term.rows
-                  });
-                }, 50);
-              }
-            }
-            const firstId = [...state.sessions.keys()][0];
-            if (firstId) switchSession(firstId);
-          } else {
-            cleanupAllSessions();
-            createSession();
-          }
-          saveSessions();
+        doReconnect(pidsToReconnect, statusEl, () => {
+          const firstId = [...state.sessions.keys()][0];
+          if (firstId) switchSession(firstId);
         });
       } else {
         createSession();
@@ -100,30 +100,9 @@ export function connect() {
         statusEl2.textContent = 'Reconectando...';
         statusEl2.style.display = 'block';
 
-        state.socket.emit('session:reconnect', pids, (restored) => {
-          statusEl2.style.display = 'none';
-          if (restored && restored.length > 0) {
-            for (const r of restored) {
-              const match = findSessionByPersistentId(r.persistentId);
-              if (match) {
-                if (r.buffer) match.session.term.write(r.buffer);
-                setTimeout(() => {
-                  match.session.fitAddon.fit();
-                  state.socket.emit('resize', {
-                    id: r.persistentId,
-                    cols: match.session.term.cols,
-                    rows: match.session.term.rows
-                  });
-                }, 50);
-              }
-            }
-            const s = state.sessions.get(state.activeId);
-            if (s && !isMobile) s.term.focus();
-          } else {
-            cleanupAllSessions();
-            createSession();
-          }
-          saveSessions();
+        doReconnect(pids, statusEl2, () => {
+          const s = state.sessions.get(state.activeId);
+          if (s && !isMobile) s.term.focus();
         });
       } else {
         statusEl.style.display = 'none';

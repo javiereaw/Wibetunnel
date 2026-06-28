@@ -1,9 +1,9 @@
-import { state } from './state.js';
+import { state, getPref, setPref } from './state.js';
 
 const THEMES = ['dark', 'light', 'auto'];
 const THEME_ICONS = { dark: '\u{1F319}', light: '\u{2600}\u{FE0F}', auto: '\u{1F4BB}' };
 
-export let currentThemeMode = localStorage.getItem('wibe-theme') || 'dark';
+export let currentThemeMode = getPref('wibe-theme', 'dark');
 export function setThemeMode(mode) { currentThemeMode = mode; }
 
 export function getSystemTheme() {
@@ -26,7 +26,7 @@ export function initTheme() {
   document.getElementById('theme-toggle').addEventListener('click', () => {
     const idx = THEMES.indexOf(currentThemeMode);
     currentThemeMode = THEMES[(idx + 1) % THEMES.length];
-    try { localStorage.setItem('wibe-theme', currentThemeMode); } catch (_) {}
+    setPref('wibe-theme', currentThemeMode);
     applyTheme(currentThemeMode);
   });
 

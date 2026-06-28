@@ -154,7 +154,7 @@ app.use((req, res, next) => {
   res.setHeader('Content-Security-Policy', [
     "default-src 'self'",
     "script-src 'self'",
-    "style-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
     "connect-src 'self' ws: wss:",
     "img-src 'self' data:",
@@ -275,10 +275,12 @@ io.on('connection', (socket) => {
     clearTimeout(authTimer);
     clearAuthAttempts(ip);
     authenticated = true;
+    const shellType = SHELL.toLowerCase().includes('powershell') ? 'powershell' : 'posix';
     socket.emit('auth_success', {
       shortcuts: SHORTCUTS,
       maxSessions: MAX_SESSIONS,
       activeSessions: getActiveSessionsList(),
+      shellType,
     });
 
     // Iniciar session timeout si esta configurado
@@ -483,10 +485,11 @@ io.on('connection', (socket) => {
     }
     const resolved = path.resolve(dirPath || CWD);
     const normalizedCwd = path.resolve(CWD);
-    // Case-insensitive comparison for Windows (NTFS is case-insensitive)
-    const resolvedLC = resolved.toLowerCase();
-    const cwdLC = normalizedCwd.toLowerCase();
-    if (resolvedLC !== cwdLC && !resolvedLC.startsWith(cwdLC + path.sep.toLowerCase())) {
+    // Case-insensitive jail on Windows (NTFS), case-sensitive on POSIX
+    const ci = process.platform === 'win32';
+    const rNorm = ci ? resolved.toLowerCase() : resolved;
+    const cNorm = ci ? normalizedCwd.toLowerCase() : normalizedCwd;
+    if (rNorm !== cNorm && !rNorm.startsWith(cNorm + path.sep)) {
       callback({ path: normalizedCwd, items: [], error: 'Acceso denegado: fuera del directorio raiz' });
       return;
     }
@@ -495,6 +498,7 @@ io.on('connection', (socket) => {
       const items = entries.map(e => ({
         name: e.name,
         isDir: e.isDirectory(),
+        fullPath: path.join(resolved, e.name),
       })).sort((a, b) => {
         if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
         return a.name.localeCompare(b.name);
@@ -580,3 +584,10 @@ function gracefulShutdown(signal) {
 }
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('uncaughtException', (err) => {
+  console.error('[ERROR] Excepción no capturada:', err);
+  gracefulShutdown('uncaughtException');
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[ERROR] Promesa rechazada no manejada:', reason);
+});

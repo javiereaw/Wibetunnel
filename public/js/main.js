@@ -1,6 +1,9 @@
 import { initTheme } from './theme.js';
 import { connect } from './socket.js';
 import './ui.js';
+import './filebrowser.js';
+import './palette.js';
+import './settings.js';
 
 initTheme();
 

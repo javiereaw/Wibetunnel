@@ -1,3 +1,11 @@
+// === Helpers de preferencias (localStorage con manejo de errores) ===
+export function getPref(key, defaultVal) {
+  try { const v = localStorage.getItem(key); return v !== null ? v : defaultVal; } catch (_) { return defaultVal; }
+}
+export function setPref(key, value) {
+  try { if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, String(value)); } catch (_) {}
+}
+
 export const state = {
   socket: null,
   sessions: new Map(),
@@ -6,7 +14,8 @@ export const state = {
   initialized: false,
   maxSessions: 5,
   sessionCounter: 0,
-  currentFontSize: parseInt(localStorage.getItem('wibe-fontsize')) || 14,
+  currentFontSize: parseInt(getPref('wibe-fontsize', '14')) || 14,
+  shellType: 'posix',
 };
 
 export const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || 'ontouchstart' in window;
@@ -53,7 +62,7 @@ export function findSessionByPersistentId(pid) {
 }
 
 export const outputTimers = new Map();
-export let notifEnabled = localStorage.getItem('wibe-notif') === 'true';
+export let notifEnabled = getPref('wibe-notif', 'false') === 'true';
 export function setNotifEnabled(val) { notifEnabled = val; }
 export function trackOutput(sessionId) {
   if (!notifEnabled || document.visibilityState === 'visible') {

@@ -1,7 +1,7 @@
 {
   "name": "wibetunnel",
   "version": "1.0.0",
-  "description": "Terminal web minimalista para Windows",
+  "description": "Terminal web minimalista y portable con sesiones persistentes",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -16,19 +16,24 @@
   "bugs": {
     "url": "https://github.com/javiereaw/Wibetunnel/issues"
   },
+  "engines": {
+    "node": ">=18"
+  },
   "keywords": [
     "terminal",
     "web-terminal",
-    "windows",
-    "powershell",
     "xterm",
     "socket.io",
-    "node-pty"
+    "node-pty",
+    "persistent-sessions"
   ],
   "dependencies": {
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "node-pty": "^1.0.0",
     "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
   }
 }

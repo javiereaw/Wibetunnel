@@ -26,12 +26,10 @@
         <span id="toolbar-title">WIBETUNNEL</span>
         <div id="toolbar-actions">
           <button id="btn-search" title="Buscar" aria-label="Buscar en terminal">&#x1F50D;</button>
-          <button id="btn-font-down" title="Reducir letra" aria-label="Reducir letra">A-</button>
-          <button id="btn-font-up" title="Aumentar letra" aria-label="Aumentar letra">A+</button>
           <button id="btn-files" title="Archivos" aria-label="File browser">&#x1F4C1;</button>
           <button id="btn-palette" title="Comandos" aria-label="Command palette">&#x2318;</button>
-          <button id="btn-notif" title="Notificaciones" aria-label="Notificaciones">&#x1F515;</button>
           <button id="theme-toggle" title="Cambiar tema" aria-label="Cambiar tema"></button>
+          <button id="btn-settings" title="Ajustes" aria-label="Ajustes">&#x2699;&#xFE0F;</button>
         </div>
       </div>
       <div id="tabs">
@@ -78,6 +76,55 @@
     <div id="palette-box">
       <input id="palette-input" placeholder="Buscar comando..." autocomplete="off">
       <ul id="palette-list"></ul>
+    </div>
+  </div>
+
+  <div id="settings">
+    <div id="settings-box">
+      <div id="settings-header">
+        <span>Ajustes</span>
+        <button id="settings-close">&#x2715;</button>
+      </div>
+      <div id="settings-body">
+        <div class="setting-group">
+          <div class="setting-label">Tema</div>
+          <div class="setting-row">
+            <button class="setting-theme-btn" data-theme="dark">&#x1F319; Dark</button>
+            <button class="setting-theme-btn" data-theme="light">&#x2600;&#xFE0F; Light</button>
+            <button class="setting-theme-btn" data-theme="auto">&#x1F4BB; Auto</button>
+          </div>
+        </div>
+        <div class="setting-group">
+          <div class="setting-label">Tama&#xF1;o de fuente</div>
+          <div class="setting-row setting-row-inline">
+            <button id="settings-font-down">A-</button>
+            <span id="settings-font-size">14</span>
+            <button id="settings-font-up">A+</button>
+          </div>
+        </div>
+        <div class="setting-group">
+          <div class="setting-label">Fuente</div>
+          <select id="settings-font-family">
+            <option value="'Courier New', monospace">Courier New (predeterminada)</option>
+            <option value="Consolas, 'Courier New', monospace">Consolas</option>
+            <option value="'Menlo', Monaco, 'Courier New', monospace">Menlo / Monaco</option>
+            <option value="monospace">System monospace</option>
+          </select>
+        </div>
+        <div class="setting-group">
+          <div class="setting-label">Notificaciones</div>
+          <button id="settings-notif-toggle">&#x1F515; Desactivadas</button>
+        </div>
+        <div class="setting-group">
+          <div class="setting-label">Mis snippets</div>
+          <ul id="snippets-list"></ul>
+          <div class="snippet-add-row">
+            <input id="snippet-label-input" placeholder="Etiqueta" maxlength="20">
+            <input id="snippet-cmd-input" placeholder="Comando">
+            <button id="snippet-add">+</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 

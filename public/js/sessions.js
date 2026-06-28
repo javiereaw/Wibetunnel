@@ -1,4 +1,4 @@
-import { state, isMobile, INPUT_BATCH_MS, inputBatch, active, saveSessions, loadSavedSessions, findSessionByPersistentId } from './state.js';
+import { state, isMobile, INPUT_BATCH_MS, inputBatch, active, saveSessions, loadSavedSessions, findSessionByPersistentId, getPref } from './state.js';
 
 const tabsEl = document.getElementById('tabs');
 const terminalsEl = document.getElementById('terminals');
@@ -25,7 +25,7 @@ export function setupSessionUI(id, displayName) {
   const cs = getComputedStyle(document.documentElement);
   const term = new Terminal({
     fontSize: state.currentFontSize || 14,
-    fontFamily: "'Courier New', monospace",
+    fontFamily: getPref('wibe-fontfamily', "'Courier New', monospace"),
     theme: {
       background: cs.getPropertyValue('--term-bg').trim(),
       foreground: cs.getPropertyValue('--term-fg').trim(),
@@ -41,6 +41,15 @@ export function setupSessionUI(id, displayName) {
   term.loadAddon(fitAddon);
   term.loadAddon(searchAddon);
   term.open(panel);
+
+  term.onScroll(() => {
+    const buf = term.buffer.active;
+    const s = state.sessions.get(id);
+    if (s) s.atBottom = buf.viewportY >= buf.baseY;
+    if (state.activeId === id) {
+      document.getElementById('btn-bottom').classList.toggle('scrolled-up', !s.atBottom);
+    }
+  });
 
   if (!isMobile) {
     try {
@@ -75,7 +84,7 @@ export function setupSessionUI(id, displayName) {
 
   panel.addEventListener('touchstart', () => term.focus());
 
-  state.sessions.set(id, { term, fitAddon, searchAddon, tabEl: tab, panelEl: panel, name: displayName, persistentId: null });
+  state.sessions.set(id, { term, fitAddon, searchAddon, tabEl: tab, panelEl: panel, name: displayName, persistentId: null, atBottom: true });
   return id;
 }
 
@@ -111,6 +120,7 @@ export function switchSession(id) {
     s.panelEl.classList.toggle('active', sid === id);
   });
   const s = active();
+  document.getElementById('btn-bottom').classList.toggle('scrolled-up', !s.atBottom);
   setTimeout(() => {
     s.fitAddon.fit();
     if (state.socket && state.socket.connected && s.persistentId) {
