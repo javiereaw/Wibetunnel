@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.wibetunnel.twa",
+    "sha256_cert_fingerprints": [
+      "FB:14:5A:D4:45:E7:0E:73:8E:49:8E:36:EB:B9:B0:9D:47:C1:6F:E5:51:38:2D:06:A0:BF:57:2F:10:07:22:0F"
+    ]
+  }
+}]
