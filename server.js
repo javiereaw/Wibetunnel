@@ -36,6 +36,8 @@ const SESSION_TIMEOUT = parseInt(process.env.WIBE_TIMEOUT) || 0;
 const RECONNECT_GRACE = parseInt(process.env.WIBE_RECONNECT_GRACE) || 1800; // segundos (30 min para cross-device)
 const BUFFER_SIZE = parseInt(process.env.WIBE_BUFFER_SIZE) || 51200;       // bytes
 const MAX_CONNECTIONS = parseInt(process.env.WIBE_MAX_CONN, 10) || 10;
+// Techo global de PTYs vivos (incluye huerfanos en grace period)
+const MAX_PTYS = parseInt(process.env.WIBE_MAX_PTYS, 10) || 15;
 const AUTH_TIMEOUT_MS = 30000;
 const AUTH_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 const SHUTDOWN_GRACE_MS = 5000;
@@ -232,12 +234,47 @@ function getActiveSessionsList() {
   return list;
 }
 
+// Aisla errores de un handler: un throw no debe tumbar el proceso ni afectar a otras sesiones
+function safe(name, fn) {
+  return (...args) => {
+    try {
+      const result = fn(...args);
+      if (result && typeof result.catch === 'function') {
+        result.catch((err) => console.error(`[ERROR] Handler ${name}:`, err));
+      }
+    } catch (err) {
+      console.error(`[ERROR] Handler ${name}:`, err);
+    }
+  };
+}
+
+// Reclamo determinista de una sesion: el propietario anterior siempre es notificado y desasociado
+function claimSession(pid, entry, socket) {
+  if (entry.cleanupTimer) {
+    clearTimeout(entry.cleanupTimer);
+    entry.cleanupTimer = null;
+  }
+  if (entry.socketId !== socket.id) {
+    const oldSocket = io.sockets.sockets.get(entry.socketId);
+    if (oldSocket) oldSocket.emit('session:taken', pid);
+    const oldSet = socketSessions.get(entry.socketId);
+    if (oldSet) oldSet.delete(pid);
+  }
+  entry.socketId = socket.id;
+  const mySet = socketSessions.get(socket.id);
+  if (mySet) mySet.add(pid);
+}
+
 // === Manejar conexiones WebSocket ===
 io.on('connection', (socket) => {
   let authenticated = false;
   let socketLastActivity = Date.now();
   let timeoutChecker = null;
   const ip = getClientIp(socket);
+
+  socket.on('error', (err) => {
+    console.error(`[ERROR] Socket ${socket.id}:`, err && err.message ? err.message : err);
+  });
 
   // Disconnect sockets that never authenticate
   const authTimer = setTimeout(() => {
@@ -248,7 +285,7 @@ io.on('connection', (socket) => {
   socketSessions.set(socket.id, new Set());
 
   // Autenticacion con rate limiting
-  socket.on('auth', (clientToken) => {
+  socket.on('auth', safe('auth', (clientToken) => {
     if (authenticated) return; // Prevent re-auth
     if (!checkRateLimit(ip)) {
       socket.emit('auth_ratelimited');
@@ -301,13 +338,20 @@ io.on('connection', (socket) => {
         }
       }, 60 * 1000);
     }
-  });
+  }));
 
   // Crear nueva sesion PTY
-  socket.on('session:create', (clientSessionId) => {
+  socket.on('session:create', safe('session:create', (clientSessionId) => {
     if (!authenticated) return;
     const myPtys = socketSessions.get(socket.id);
     if (myPtys && myPtys.size >= MAX_SESSIONS) return;
+
+    // Techo global: cuenta tambien PTYs huerfanos en grace period
+    if (ptyStore.size >= MAX_PTYS) {
+      console.warn(`[PTY] Limite global de ${MAX_PTYS} PTYs alcanzado, rechazando creacion`);
+      socket.emit('session:error', { clientSessionId, error: 'Limite global de sesiones alcanzado' });
+      return;
+    }
 
     // Guard: prevent duplicate clientSessionId from creating orphan PTYs
     if (typeof clientSessionId !== 'string') return;
@@ -348,67 +392,57 @@ io.on('connection', (socket) => {
 
     // Reenviar output al navegador (batched) y bufferear
     ptyProcess.onData((data) => {
-      appendBuffer(entry, data);
-      entry.lastActivity = Date.now();
-      socketLastActivity = entry.lastActivity;
-      batchOutput(persistentId, data);
+      try {
+        appendBuffer(entry, data);
+        entry.lastActivity = Date.now();
+        socketLastActivity = entry.lastActivity;
+        batchOutput(persistentId, data);
+      } catch (err) {
+        console.error(`[ERROR] pty onData ${persistentId}:`, err);
+      }
     });
 
     // Terminal cerrado (usuario escribio exit, etc.)
     ptyProcess.onExit(() => {
-      // Flush cualquier output pendiente antes de cerrar
-      flushOutput(persistentId);
-      const batch = outputBatch.get(persistentId);
-      if (batch && batch.timer) clearTimeout(batch.timer);
-      outputBatch.delete(persistentId);
+      try {
+        // Flush cualquier output pendiente antes de cerrar
+        flushOutput(persistentId);
+        const batch = outputBatch.get(persistentId);
+        if (batch && batch.timer) clearTimeout(batch.timer);
+        outputBatch.delete(persistentId);
 
-      const targetSocket = io.sockets.sockets.get(entry.socketId);
-      if (targetSocket) {
-        targetSocket.emit('session:exit', persistentId);
+        const targetSocket = io.sockets.sockets.get(entry.socketId);
+        if (targetSocket) {
+          targetSocket.emit('session:exit', persistentId);
+        }
+        // Limpiar del store
+        const ownerSet = socketSessions.get(entry.socketId);
+        if (ownerSet) ownerSet.delete(persistentId);
+        if (entry.cleanupTimer) clearTimeout(entry.cleanupTimer);
+        ptyStore.delete(persistentId);
+      } catch (err) {
+        console.error(`[ERROR] pty onExit ${persistentId}:`, err);
+        ptyStore.delete(persistentId);
+        outputBatch.delete(persistentId);
       }
-      // Limpiar del store
-      const ownerSet = socketSessions.get(entry.socketId);
-      if (ownerSet) ownerSet.delete(persistentId);
-      if (entry.cleanupTimer) clearTimeout(entry.cleanupTimer);
-      ptyStore.delete(persistentId);
     });
 
     socket.emit('session:created', { clientSessionId, persistentId });
     console.log(`[+] Sesion ${persistentId} (PID: ${ptyProcess.pid})`);
-  });
+  }));
 
   // Reconectar sesiones existentes
-  socket.on('session:reconnect', (persistentIds, callback) => {
+  socket.on('session:reconnect', safe('session:reconnect', (persistentIds, callback) => {
     if (!authenticated || typeof callback !== 'function') return;
     if (!Array.isArray(persistentIds)) { callback([]); return; }
     const restored = [];
-    const myPtys = socketSessions.get(socket.id);
 
     for (const pid of persistentIds) {
       const entry = ptyStore.get(pid);
       if (!entry) continue;
 
-      // Cancelar timer de limpieza
-      if (entry.cleanupTimer) {
-        clearTimeout(entry.cleanupTimer);
-        entry.cleanupTimer = null;
-      }
-
-      // Notificar al socket anterior si es diferente (takeover cross-device)
-      if (entry.socketId !== socket.id) {
-        const oldSocket = io.sockets.sockets.get(entry.socketId);
-        if (oldSocket && oldSocket.connected) {
-          oldSocket.emit('session:taken', pid);
-        }
-      }
-
-      // Desasociar del socket anterior si es diferente
-      const oldSet = socketSessions.get(entry.socketId);
-      if (oldSet) oldSet.delete(pid);
-
-      // Reasignar al nuevo socket
-      entry.socketId = socket.id;
-      if (myPtys) myPtys.add(pid);
+      // Reclamo atomico: cancela grace timer, notifica SIEMPRE al dueño anterior y reasigna
+      claimSession(pid, entry, socket);
 
       restored.push({
         persistentId: pid,
@@ -419,16 +453,16 @@ io.on('connection', (socket) => {
     }
 
     callback(restored);
-  });
+  }));
 
   // Listar sesiones activas (para cross-device discovery)
-  socket.on('session:list', (callback) => {
+  socket.on('session:list', safe('session:list', (callback) => {
     if (!authenticated || typeof callback !== 'function') return;
     callback(getActiveSessionsList());
-  });
+  }));
 
   // Cerrar una sesion (usa persistentId)
-  socket.on('session:kill', (persistentId) => {
+  socket.on('session:kill', safe('session:kill', (persistentId) => {
     if (!authenticated) return;
     const entry = ptyStore.get(persistentId);
     if (entry) {
@@ -442,10 +476,10 @@ io.on('connection', (socket) => {
       if (ownerSet) ownerSet.delete(persistentId);
       ptyStore.delete(persistentId);
     }
-  });
+  }));
 
   // Input del navegador → terminal (usa persistentId)
-  socket.on('input', ({ id, data }) => {
+  socket.on('input', safe('input', ({ id, data }) => {
     if (authenticated && typeof id === 'string' && typeof data === 'string' && data.length <= 65536) {
       socketLastActivity = Date.now();
       const entry = ptyStore.get(id);
@@ -454,15 +488,15 @@ io.on('connection', (socket) => {
         entry.pty.write(data);
       }
     }
-  });
+  }));
 
   // Heartbeat: mantiene la sesion viva (el cliente lo envia periodicamente)
-  socket.on('heartbeat', () => {
+  socket.on('heartbeat', safe('heartbeat', () => {
     if (authenticated) socketLastActivity = Date.now();
-  });
+  }));
 
   // Resize de una sesion especifica (usa persistentId)
-  socket.on('resize', ({ id, cols, rows }) => {
+  socket.on('resize', safe('resize', ({ id, cols, rows }) => {
     if (authenticated &&
         typeof id === 'string' &&
         Number.isInteger(cols) && cols >= 1 && cols <= 500 &&
@@ -470,13 +504,15 @@ io.on('connection', (socket) => {
       socketLastActivity = Date.now();
       const entry = ptyStore.get(id);
       if (entry) {
-        try { entry.pty.resize(cols, rows); } catch (e) {}
+        try { entry.pty.resize(cols, rows); } catch (e) {
+          console.warn(`[PTY] resize fallido en ${id}:`, e.message);
+        }
       }
     }
-  });
+  }));
 
   // File browser: listar directorio
-  socket.on('fs:list', async (dirPath, callback) => {
+  socket.on('fs:list', safe('fs:list', async (dirPath, callback) => {
     if (!authenticated) return;
     if (typeof callback !== 'function') return;
     if (typeof dirPath !== 'string' && dirPath != null) {
@@ -508,10 +544,10 @@ io.on('connection', (socket) => {
       console.error('[FS] Error listando directorio:', err.message);
       callback({ path: resolved, items: [], error: 'No se pudo listar el directorio' });
     }
-  });
+  }));
 
   // Desconexion: grace period en vez de kill inmediato
-  socket.on('disconnect', () => {
+  socket.on('disconnect', safe('disconnect', () => {
     clearTimeout(authTimer);
     if (timeoutChecker) clearInterval(timeoutChecker);
     const myPtys = socketSessions.get(socket.id);
@@ -541,7 +577,7 @@ io.on('connection', (socket) => {
     }
 
     socketSessions.delete(socket.id);
-  });
+  }));
 });
 
 // === Arrancar servidor ===
@@ -554,7 +590,10 @@ server.listen(PORT, () => {
 });
 
 // === Graceful shutdown: limpiar PTYs (incluyendo huerfanos) y cerrar servidor ===
+let shuttingDown = false;
 function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`\n[SHUTDOWN] Recibido ${signal}, limpiando...`);
   // Limpiar output batches pendientes
   for (const [pid, batch] of outputBatch) {
@@ -584,10 +623,22 @@ function gracefulShutdown(signal) {
 }
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-process.on('uncaughtException', (err) => {
-  console.error('[ERROR] Excepción no capturada:', err);
-  gracefulShutdown('uncaughtException');
-});
-process.on('unhandledRejection', (reason) => {
-  console.error('[ERROR] Promesa rechazada no manejada:', reason);
-});
+
+// Politica de crashes: un error aislado se registra y el proceso sigue (las sesiones
+// sobreviven). Solo si hay una rafaga de errores (estado probablemente corrupto)
+// se apaga de forma ordenada; systemd se encarga de reiniciar.
+const CRASH_BURST_MAX = 3;
+const CRASH_BURST_WINDOW_MS = 60000;
+let crashTimes = [];
+function recordCrash(kind, err) {
+  console.error(`[ERROR] ${kind}:`, err);
+  const now = Date.now();
+  crashTimes = crashTimes.filter(t => now - t < CRASH_BURST_WINDOW_MS);
+  crashTimes.push(now);
+  if (crashTimes.length > CRASH_BURST_MAX) {
+    console.error(`[ERROR] ${crashTimes.length} errores en ${CRASH_BURST_WINDOW_MS / 1000}s, apagando`);
+    gracefulShutdown(kind);
+  }
+}
+process.on('uncaughtException', (err) => recordCrash('uncaughtException', err));
+process.on('unhandledRejection', (reason) => recordCrash('unhandledRejection', reason));

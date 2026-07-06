@@ -15,6 +15,9 @@ function doReconnect(pids, statusEl, onRestored) {
       for (const r of restored) {
         const match = findSessionByPersistentId(r.persistentId);
         if (match) {
+          // Reset antes del replay: el buffer del servidor es la fuente de verdad,
+          // sin esto una reconexion a mitad de sesion duplica el scrollback
+          match.session.term.reset();
           if (r.buffer) match.session.term.write(r.buffer);
           setTimeout(() => {
             match.session.fitAddon.fit();
@@ -39,6 +42,17 @@ export function connect() {
   state.savedToken = document.getElementById('token').value.trim();
   if (!state.savedToken) return;
   document.getElementById('error').textContent = '';
+
+  // Guard: si ya hay un socket (doble click, Enter+click), desecharlo para no duplicar handlers
+  if (state.socket) {
+    state.socket.removeAllListeners();
+    state.socket.disconnect();
+    state.socket = null;
+  }
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
+  }
 
   state.socket = io({
     reconnection: true,

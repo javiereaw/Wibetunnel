@@ -1,0 +1,20 @@
+# Instalar en /etc/systemd/system/wibetunnel.service
+# Ajustar User, rutas de node (nvm) y WorkingDirectory a tu instalacion.
+#   sudo cp deploy/wibetunnel.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now wibetunnel
+[Unit]
+Description=Wibetunnel web terminal
+After=network.target
+
+[Service]
+Type=simple
+User=javiereaw
+WorkingDirectory=/home/javiereaw/www/Wibetunnel
+Environment=PATH=/home/javiereaw/.nvm/versions/node/v24.18.0/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/javiereaw/.nvm/versions/node/v24.18.0/bin/node server.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
