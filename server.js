@@ -170,8 +170,12 @@ app.post('/fs/upload', async (req, res) => {
   }
 });
 
-// Servir archivos estáticos (public/)
-app.use(express.static(path.join(__dirname, 'public')));
+// Servir archivos estáticos (public/) con revalidacion forzada: sin esto el
+// navegador aplica cache heuristica y puede quedarse con JS viejo tras un deploy
+// (el ETag hace que la revalidacion sea un 304 barato)
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
+}));
 
 // Aisla errores de un handler: un throw no debe tumbar el proceso ni afectar a otras sesiones
 function safe(name, fn) {
