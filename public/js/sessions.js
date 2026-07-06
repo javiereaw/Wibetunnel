@@ -142,13 +142,16 @@ export function switchSession(id) {
   });
   const s = active();
   document.getElementById('btn-bottom').classList.toggle('scrolled-up', !s.atBottom);
-  setTimeout(() => {
+  // rAF en vez de setTimeout: garantiza que el layout del panel recien activado
+  // ya esta aplicado cuando fit() mide las dimensiones
+  requestAnimationFrame(() => {
+    if (state.activeId !== id) return; // el usuario ya cambio a otra tab
     s.fitAddon.fit();
     if (state.socket && state.socket.connected && s.persistentId) {
       state.socket.emit('resize', { id: s.persistentId, cols: s.term.cols, rows: s.term.rows });
     }
     if (!isMobile) s.term.focus();
-  }, 50);
+  });
 }
 
 function releaseSessionResources(s) {

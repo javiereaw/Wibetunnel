@@ -1,7 +1,7 @@
 import { state, active, isMobile, setPref } from './state.js';
 import { createSession, closeSession, switchSession } from './sessions.js';
 import { setThemeMode, applyTheme } from './theme.js';
-import { openSearch, applyFontSize } from './ui.js';
+import { openSearch, applyFontSize, showToast } from './ui.js';
 import { openFileBrowser } from './filebrowser.js';
 
 const paletteEl = document.getElementById('palette');
@@ -17,7 +17,8 @@ function getPaletteCommands() {
     { name: 'Tema: Light', hint: '', action: () => { setPref('wibe-theme', 'light'); setThemeMode('light'); applyTheme('light'); } },
     { name: 'Tema: Auto', hint: '', action: () => { setPref('wibe-theme', 'auto'); setThemeMode('auto'); applyTheme('auto'); } },
     { name: 'Limpiar terminal', hint: 'cls', action: () => { const s = active(); if (s) s.term.clear(); } },
-    { name: 'Copiar selección', hint: '', action: () => { const s = active(); if (s) { const sel = s.term.getSelection(); if (sel) navigator.clipboard.writeText(sel); } } },
+    { name: 'Copiar selección', hint: '', action: () => { const s = active(); if (s) { const sel = s.term.getSelection(); if (sel) navigator.clipboard.writeText(sel).catch(() => showToast('No se pudo copiar al portapapeles')); } } },
+    { name: 'Olvidar token guardado', hint: '', action: () => { setPref('wibe-token', null); showToast('Token olvidado en este dispositivo'); } },
     { name: 'Pegar', hint: '', action: () => document.getElementById('btn-paste').click() },
     { name: 'Explorar archivos', hint: '', action: () => openFileBrowser('') },
     { name: 'Buscar en terminal', hint: 'Ctrl+F', action: () => openSearch() },

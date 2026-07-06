@@ -51,6 +51,21 @@ tabsEl.addEventListener('dblclick', (e) => {
   if (tab && !e.target.closest('.tab-close')) renameTab(tab);
 });
 
+// Toast de feedback no intrusivo (errores de portapapeles, avisos breves)
+let toastTimer = null;
+export function showToast(msg) {
+  let el = document.getElementById('toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add('visible');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('visible'), 2500);
+}
+
 const searchBar = document.getElementById('search-bar');
 const searchInput = document.getElementById('search-input');
 
@@ -147,7 +162,7 @@ document.getElementById('btn-copy').addEventListener('click', (e) => {
     navigator.clipboard.writeText(sel).then(() => {
       e.target.textContent = 'OK!';
       setTimeout(() => e.target.textContent = 'Copy', 800);
-    }).catch(() => {});
+    }).catch(() => showToast('No se pudo copiar al portapapeles'));
   }
 });
 

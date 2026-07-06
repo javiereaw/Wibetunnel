@@ -14,7 +14,7 @@ trap 'kill $SRV 2>/dev/null' EXIT
 sleep 2
 
 FAIL=0
-for t in smoke stress webgl-check; do
+for t in smoke stress webgl-check remember; do
   echo "=== tests/e2e/$t.js ==="
   WIBE_TEST_URL="http://localhost:$PORT/" WIBE_TEST_TOKEN="$TOKEN" node "tests/e2e/$t.js" || FAIL=1
 done

@@ -1,11 +1,35 @@
-import { state, isMobile, HEARTBEAT_INTERVAL_MS, inputBatch, saveSessions, loadSavedSessions, findSessionByPersistentId, trackOutput } from './state.js';
-import { createSession, adoptSession, switchSession, cleanupAllSessions } from './sessions.js';
+import { state, isMobile, HEARTBEAT_INTERVAL_MS, inputBatch, setPref, saveSessions, loadSavedSessions, findSessionByPersistentId, trackOutput } from './state.js';
+import { createSession, adoptSession, switchSession, closeSession, cleanupAllSessions } from './sessions.js';
 import { initShortcuts } from './settings.js';
 
 const outputBuffers = new Map();
 let heartbeatInterval = null;
 let reconnectBackoffMs = 1000;
 const MAX_BACKOFF_MS = 30000;
+const AUTO_REAP_MS = 10000; // cerrar tabs 'exited' no activas tras este tiempo
+
+// === Overlay de estado con niveles: info, aviso escalado y error con reintento ===
+let retryBtn = null;
+function setStatus(text, { retry = false } = {}) {
+  const el = document.getElementById('status');
+  el.textContent = text;
+  if (retry) {
+    if (!retryBtn) {
+      retryBtn = document.createElement('button');
+      retryBtn.textContent = 'Reintentar ahora';
+      retryBtn.style.cssText = 'display:block;margin:10px auto 0;padding:6px 14px;background:var(--accent);color:var(--bg);border:none;border-radius:5px;cursor:pointer;font-size:13px;';
+      retryBtn.addEventListener('click', () => {
+        setStatus('Reconectando...');
+        if (state.socket) state.socket.connect();
+      });
+    }
+    el.appendChild(retryBtn);
+  }
+  el.style.display = 'block';
+}
+function hideStatus() {
+  document.getElementById('status').style.display = 'none';
+}
 
 // Restaurar sesiones persistentes: emite session:reconnect, escribe buffer, reajusta terminal
 function doReconnect(pids, statusEl, onRestored) {
@@ -19,14 +43,18 @@ function doReconnect(pids, statusEl, onRestored) {
           // sin esto una reconexion a mitad de sesion duplica el scrollback
           match.session.term.reset();
           if (r.buffer) match.session.term.write(r.buffer);
-          setTimeout(() => {
-            match.session.fitAddon.fit();
-            state.socket.emit('resize', {
-              id: r.persistentId,
-              cols: match.session.term.cols,
-              rows: match.session.term.rows
+          // Solo la sesion visible se re-ajusta aqui (fit en panel oculto no hace
+          // nada util); las demas se ajustan al activarse en switchSession
+          if (match.id === state.activeId) {
+            requestAnimationFrame(() => {
+              match.session.fitAddon.fit();
+              state.socket.emit('resize', {
+                id: r.persistentId,
+                cols: match.session.term.cols,
+                rows: match.session.term.rows
+              });
             });
-          }, 50);
+          }
         }
       }
       if (onRestored) onRestored();
@@ -42,6 +70,10 @@ export function connect() {
   state.savedToken = document.getElementById('token').value.trim();
   if (!state.savedToken) return;
   document.getElementById('error').textContent = '';
+
+  // Remember-me opt-in: persistir solo si el usuario lo marca
+  const rememberEl = document.getElementById('remember-token');
+  setPref('wibe-token', rememberEl && rememberEl.checked ? state.savedToken : null);
 
   // Guard: si ya hay un socket (doble click, Enter+click), desecharlo para no duplicar handlers
   if (state.socket) {
@@ -60,10 +92,30 @@ export function connect() {
     reconnectionDelayMax: 5000,
     reconnectionAttempts: Infinity,
     timeout: 60000,
-    transports: ['websocket'],
+    // websocket primero; polling como fallback para redes que bloquean el upgrade
+    // (tryAllTransports hace que engine.io pruebe el siguiente si el primero falla)
+    transports: ['websocket', 'polling'],
+    tryAllTransports: true,
+  });
+
+  let connectErrors = 0;
+  state.socket.on('connect_error', (err) => {
+    connectErrors++;
+    const detail = err && err.message ? err.message : 'sin respuesta';
+    const loginVisible = document.getElementById('login').style.display !== 'none';
+    if (loginVisible) {
+      document.getElementById('error').textContent = `No se pudo conectar con el servidor (${detail})`;
+      return;
+    }
+    if (connectErrors >= 8) {
+      setStatus(`Sin conexión con el servidor (${detail})`, { retry: true });
+    } else if (connectErrors >= 3) {
+      setStatus(`Reconectando... el servidor no responde (intento ${connectErrors})`);
+    }
   });
 
   state.socket.on('connect', () => {
+    connectErrors = 0;
     reconnectBackoffMs = 1000;
     state.socket.emit('auth', state.savedToken);
 
@@ -127,6 +179,10 @@ export function connect() {
 
   state.socket.on('auth_failed', () => {
     document.getElementById('error').textContent = 'Token incorrecto';
+    // Olvidar el token guardado: evita bucles de auto-conexion fallida + rate limit
+    setPref('wibe-token', null);
+    const rememberEl = document.getElementById('remember-token');
+    if (rememberEl) rememberEl.checked = false;
     if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
     state.socket.disconnect();
   });
@@ -194,6 +250,15 @@ export function connect() {
     if (match) {
       match.session.term.write('\r\n[Sesi\u00f3n terminada]\r\n');
       match.session.tabEl.classList.add('exited');
+      // Auto-reap: cerrar la tab muerta pasado un tiempo, salvo que sea la
+      // activa (el usuario puede estar leyendo la salida final)
+      const sid = match.id;
+      setTimeout(() => {
+        if (!state.sessions.has(sid)) return;
+        if (state.activeId === sid) return;
+        if (!state.socket || !state.socket.connected) return;
+        closeSession(sid);
+      }, AUTO_REAP_MS);
     }
     cleanOutputBuffer(persistentId);
     const batch = inputBatch.get(persistentId);

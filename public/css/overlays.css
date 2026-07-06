@@ -131,6 +131,16 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }
+#toast {
+  position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
+  background: var(--secondary); color: var(--fg);
+  border: 1px solid var(--accent); border-radius: 6px;
+  padding: 8px 14px; font-size: 13px; z-index: 400;
+  opacity: 0; pointer-events: none; transition: opacity .2s;
+  max-width: 80vw; text-align: center;
+}
+#toast.visible { opacity: 1; }
+#fb-list li.fb-error { color: #ff9800; cursor: default; }
 #settings {
   display: none; position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;

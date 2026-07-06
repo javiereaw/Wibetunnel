@@ -1,5 +1,6 @@
 import { initTheme } from './theme.js';
 import { connect } from './socket.js';
+import { getPref } from './state.js';
 import './ui.js';
 import './filebrowser.js';
 import './palette.js';
@@ -18,3 +19,11 @@ document.getElementById('token').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') connect();
 });
 document.getElementById('btn-connect').addEventListener('click', connect);
+
+// Remember-me: si hay token guardado, rellenar y conectar automaticamente
+const savedToken = getPref('wibe-token', '');
+if (savedToken) {
+  document.getElementById('token').value = savedToken;
+  document.getElementById('remember-token').checked = true;
+  connect();
+}

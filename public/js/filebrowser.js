@@ -8,7 +8,17 @@ let fbCurrentPath = '';
 export function openFileBrowser(dirPath) {
   if (!state.socket || !state.socket.connected) return;
   state.socket.emit('fs:list', dirPath || '', (res) => {
-    if (res.error) return;
+    if (res.error) {
+      // Error visible en el propio panel en vez de fallo silencioso
+      fbPathEl.textContent = res.path || fbCurrentPath || '';
+      fbListEl.innerHTML = '';
+      const li = document.createElement('li');
+      li.className = 'fb-error';
+      li.textContent = res.error;
+      fbListEl.appendChild(li);
+      fbEl.style.display = 'flex';
+      return;
+    }
     fbCurrentPath = res.path;
     fbPathEl.textContent = res.path;
     fbListEl.innerHTML = '';
