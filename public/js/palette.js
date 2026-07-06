@@ -21,6 +21,18 @@ function getPaletteCommands() {
     { name: 'Copiar selección', hint: '', action: () => { const s = active(); if (s) { const sel = s.term.getSelection(); if (sel) navigator.clipboard.writeText(sel).catch(() => showToast('No se pudo copiar al portapapeles')); } } },
     { name: 'Olvidar token guardado', hint: '', action: () => { setPref('wibe-token', null); showToast('Token olvidado en este dispositivo'); } },
     { name: 'Estado del servidor', hint: '', action: () => openStatusPanel() },
+    { name: 'Instalar como app', hint: 'PWA', action: async () => {
+      if (state.installPrompt) {
+        state.installPrompt.prompt();
+        const choice = await state.installPrompt.userChoice;
+        state.installPrompt = null;
+        showToast(choice.outcome === 'accepted' ? 'Instalando Wibetunnel...' : 'Instalación cancelada');
+      } else if (window.matchMedia('(display-mode: standalone)').matches) {
+        showToast('Ya estás usando la app instalada');
+      } else {
+        showToast('El navegador no ofrece instalación ahora (¿ya está instalada? mira tu launcher)');
+      }
+    } },
     { name: 'Grabar / detener grabación', hint: 'REC', action: () => {
       const s = active();
       if (!s || !s.persistentId || !state.socket || !state.socket.connected) return;

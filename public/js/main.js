@@ -32,3 +32,13 @@ if (savedToken) {
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
+
+// Capturar el prompt de instalacion para dispararlo desde la paleta
+import { state } from './state.js';
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  state.installPrompt = e;
+});
+window.addEventListener('appinstalled', () => {
+  state.installPrompt = null;
+});

@@ -1,6 +1,6 @@
 // Service worker: network-first con fallback a cache para los estaticos.
 // Nunca toca /socket.io, /health ni /fs/ (tiempo real y transferencias).
-const CACHE = 'wibetunnel-v1';
+const CACHE = 'wibetunnel-v2';
 const PRECACHE = [
   '/',
   '/manifest.json',
@@ -47,9 +47,11 @@ self.addEventListener('fetch', (e) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/socket.io') || url.pathname === '/health' || url.pathname.startsWith('/fs/')) return;
 
-  // Network-first: la app siempre fresca; el cache solo entra sin red
+  // Network-first: la app siempre fresca; el cache solo entra sin red.
+  // cache:'no-cache' fuerza revalidacion con ETag aunque un proxy (Cloudflare)
+  // imponga max-age largos en el navegador — sin esto el SW leeria HTTP cache viejo.
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then((res) => {
         if (res.ok) {
           const clone = res.clone();
