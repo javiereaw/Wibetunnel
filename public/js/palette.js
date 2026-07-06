@@ -3,6 +3,7 @@ import { createSession, closeSession, switchSession } from './sessions.js';
 import { setThemeMode, applyTheme } from './theme.js';
 import { openSearch, applyFontSize, showToast } from './ui.js';
 import { openFileBrowser } from './filebrowser.js';
+import { openStatusPanel } from './statuspanel.js';
 
 const paletteEl = document.getElementById('palette');
 const paletteInputEl = document.getElementById('palette-input');
@@ -19,12 +20,24 @@ function getPaletteCommands() {
     { name: 'Limpiar terminal', hint: 'cls', action: () => { const s = active(); if (s) s.term.clear(); } },
     { name: 'Copiar selección', hint: '', action: () => { const s = active(); if (s) { const sel = s.term.getSelection(); if (sel) navigator.clipboard.writeText(sel).catch(() => showToast('No se pudo copiar al portapapeles')); } } },
     { name: 'Olvidar token guardado', hint: '', action: () => { setPref('wibe-token', null); showToast('Token olvidado en este dispositivo'); } },
+    { name: 'Estado del servidor', hint: '', action: () => openStatusPanel() },
+    { name: 'Grabar / detener grabación', hint: 'REC', action: () => {
+      const s = active();
+      if (!s || !s.persistentId || !state.socket || !state.socket.connected) return;
+      state.socket.emit('session:record', s.persistentId, (r) => {
+        if (!r || r.error) showToast((r && r.error) || 'No se pudo grabar');
+        else showToast(r.recording ? 'Grabando sesión en el servidor' : 'Grabación guardada: ' + r.file);
+      });
+    } },
     { name: 'Pegar', hint: '', action: () => document.getElementById('btn-paste').click() },
     { name: 'Explorar archivos', hint: '', action: () => openFileBrowser('') },
     { name: 'Buscar en terminal', hint: 'Ctrl+F', action: () => openSearch() },
     { name: 'Letra más grande', hint: 'A+', action: () => applyFontSize(state.currentFontSize + 2) },
     { name: 'Letra más pequeña', hint: 'A-', action: () => applyFontSize(state.currentFontSize - 2) },
   ];
+  state.profiles.forEach((label) => {
+    cmds.push({ name: `Nueva sesión: ${label}`, hint: '', action: () => createSession(label) });
+  });
   state.sessions.forEach((s, id) => {
     const num = id.replace('ses-', '');
     cmds.push({ name: `Ir a Shell ${num}`, hint: '', action: () => switchSession(id) });

@@ -110,7 +110,10 @@ export function setupSessionUI(id, displayName) {
   return id;
 }
 
-export function createSession() {
+// profileLabel opcional (string): perfil de shell definido en el servidor.
+// Nota: tambien se usa como click handler directo, de ahi el typeof.
+export function createSession(profileLabel) {
+  const label = typeof profileLabel === 'string' ? profileLabel : null;
   const statusEl = document.getElementById('status');
   if (!state.socket || !state.socket.connected) return;
   if (state.sessions.size >= state.maxSessions) {
@@ -120,8 +123,8 @@ export function createSession() {
     return;
   }
   const id = 'ses-' + (++state.sessionCounter);
-  setupSessionUI(id, 'Shell ' + state.sessionCounter);
-  state.socket.emit('session:create', id);
+  setupSessionUI(id, (label || 'Shell') + ' ' + state.sessionCounter);
+  state.socket.emit('session:create', label ? { id, profile: label } : id);
   switchSession(id);
 }
 

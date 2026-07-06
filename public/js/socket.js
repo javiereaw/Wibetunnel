@@ -126,6 +126,7 @@ export function connect() {
     document.getElementById('terminal-container').style.display = 'flex';
     if (data && data.maxSessions) state.maxSessions = data.maxSessions;
     if (data && data.shellType) state.shellType = data.shellType;
+    state.profiles = (data && data.profiles) || [];
 
     initShortcuts((data && data.shortcuts) || []);
 

@@ -1,9 +1,54 @@
 import { state, active, isMobile } from './state.js';
+import { showToast } from './ui.js';
 
 const fbEl = document.getElementById('filebrowser');
 const fbPathEl = document.getElementById('fb-path');
 const fbListEl = document.getElementById('fb-list');
 let fbCurrentPath = '';
+
+function authHeaders() {
+  return { Authorization: 'Bearer ' + state.savedToken };
+}
+
+function downloadFile(fullPath, name) {
+  showToast('Descargando ' + name + '...');
+  fetch('/fs/download?path=' + encodeURIComponent(fullPath), { headers: authHeaders() })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    })
+    .catch(() => showToast('No se pudo descargar ' + name));
+}
+
+async function uploadFile(file) {
+  showToast('Subiendo ' + file.name + '...');
+  try {
+    const res = await fetch(
+      '/fs/upload?dir=' + encodeURIComponent(fbCurrentPath) + '&name=' + encodeURIComponent(file.name),
+      { method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/octet-stream' }, body: file }
+    );
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || ('HTTP ' + res.status));
+    showToast('Subido: ' + file.name);
+    openFileBrowser(fbCurrentPath); // refrescar listado
+  } catch (err) {
+    showToast('Error al subir: ' + (err.message || ''));
+  }
+}
+
+document.getElementById('fb-upload').addEventListener('click', () => {
+  document.getElementById('fb-file').click();
+});
+document.getElementById('fb-file').addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (f) uploadFile(f);
+});
 
 export function openFileBrowser(dirPath) {
   if (!state.socket || !state.socket.connected) return;
@@ -61,7 +106,15 @@ export function openFileBrowser(dirPath) {
         icon.textContent = '\u{1F4C4}';
         const nameSpan = document.createElement('span');
         nameSpan.textContent = item.name;
-        li.append(icon, nameSpan);
+        const dlBtn = document.createElement('button');
+        dlBtn.className = 'fb-select';
+        dlBtn.title = 'Descargar';
+        dlBtn.textContent = '⤓';
+        li.append(icon, nameSpan, dlBtn);
+        dlBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          downloadFile(fullPath, item.name);
+        });
         li.addEventListener('click', () => {
           const as = active();
           if (state.socket && state.socket.connected && as && as.persistentId) {

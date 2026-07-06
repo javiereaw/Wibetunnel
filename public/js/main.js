@@ -27,3 +27,8 @@ if (savedToken) {
   document.getElementById('remember-token').checked = true;
   connect();
 }
+
+// PWA: service worker para instalabilidad y cache de estaticos
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}

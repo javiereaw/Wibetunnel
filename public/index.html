@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Wibetunnel</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#16213e">
+  <link rel="icon" type="image/png" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <link rel="stylesheet" href="/vendor/xterm.css">
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/layout.css">
@@ -71,7 +75,21 @@
   <div id="filebrowser">
     <div id="fb-box">
       <div id="fb-path"></div>
+      <div id="fb-actions">
+        <button id="fb-upload">&#x2912; Subir archivo</button>
+        <input type="file" id="fb-file" hidden>
+      </div>
       <ul id="fb-list"></ul>
+    </div>
+  </div>
+
+  <div id="statuspanel">
+    <div id="statuspanel-box">
+      <div id="statuspanel-header">
+        <span>Estado del servidor</span>
+        <button id="statuspanel-close">&#x2715;</button>
+      </div>
+      <div id="statuspanel-body"></div>
     </div>
   </div>
 

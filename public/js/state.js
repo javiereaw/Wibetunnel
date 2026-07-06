@@ -16,6 +16,7 @@ export const state = {
   sessionCounter: 0,
   currentFontSize: parseInt(getPref('wibe-fontsize', '14')) || 14,
   shellType: 'posix',
+  profiles: [],
 };
 
 export const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || 'ontouchstart' in window;

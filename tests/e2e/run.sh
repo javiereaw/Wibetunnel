@@ -6,18 +6,22 @@ cd "$(dirname "$0")/../.."
 
 PORT="${WIBE_TEST_PORT:-4021}"
 TOKEN="${WIBE_TEST_TOKEN:-smoketest-token}"
+TEST_CWD="$(mktemp -d /tmp/wibetunnel-e2e-cwd.XXXXXX)"
+REC_DIR="/tmp/wibetunnel-e2e-rec"
 
-WIBE_PORT="$PORT" WIBE_TOKEN="$TOKEN" WIBE_SHELL=/bin/bash WIBE_CWD="$HOME" \
+WIBE_PORT="$PORT" WIBE_TOKEN="$TOKEN" WIBE_SHELL=/bin/bash WIBE_CWD="$TEST_CWD" \
   WIBE_BP_HIGH=8000 WIBE_BP_LOW=2000 WIBE_LOG_LEVEL=debug \
+  WIBE_PROFILES="Bash=/bin/bash,Sh=/bin/sh" WIBE_REC_DIR="$REC_DIR" \
   node server.js > /tmp/wibetunnel-e2e-server.log 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null' EXIT
 sleep 2
 
 FAIL=0
-for t in smoke stress webgl-check remember; do
+for t in smoke stress webgl-check remember features; do
   echo "=== tests/e2e/$t.js ==="
-  WIBE_TEST_URL="http://localhost:$PORT/" WIBE_TEST_TOKEN="$TOKEN" node "tests/e2e/$t.js" || FAIL=1
+  WIBE_TEST_URL="http://localhost:$PORT/" WIBE_TEST_TOKEN="$TOKEN" \
+    WIBE_TEST_REC_DIR="$REC_DIR" node "tests/e2e/$t.js" || FAIL=1
 done
 
 echo "=== Logs [BP] del servidor de test ==="

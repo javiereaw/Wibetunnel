@@ -11,12 +11,13 @@ const fs = require('fs');
 const config = require('./lib/config');
 const { getClientIp, tokenMatches, checkRateLimit, recordFailedAuth, clearAuthAttempts } = require('./lib/auth');
 const ptyStore = require('./lib/pty-store');
-const { listDirectory } = require('./lib/fs-handler');
+const { listDirectory, resolveJailed } = require('./lib/fs-handler');
 
 const {
   TOKEN, PORT, SHELL, SHORTCUTS, SESSION_TIMEOUT, RATE_MAX, RATE_WINDOW,
   RECONNECT_GRACE, BUFFER_SIZE, MAX_CONNECTIONS, MAX_SESSIONS,
   AUTH_TIMEOUT_MS, SHUTDOWN_GRACE_MS, SSL_CERT, SSL_KEY, ALLOWED_ORIGINS,
+  PROFILES, UPLOAD_MAX,
 } = config;
 
 // Validar que el token esté configurado (obligatorio)
@@ -87,11 +88,18 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health: estado de recursos, autenticado con el mismo token (Authorization: Bearer <token>)
-app.get('/health', (req, res) => {
+// Auth HTTP compartida: Authorization: Bearer <token>
+function httpAuthed(req, res) {
   const auth = req.headers.authorization || '';
   const candidate = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (!tokenMatches(candidate)) return res.status(401).json({ error: 'unauthorized' });
+  if (tokenMatches(candidate)) return true;
+  res.status(401).json({ error: 'unauthorized' });
+  return false;
+}
+
+// Health: estado de recursos + detalle por sesion (para el panel de estado)
+app.get('/health', (req, res) => {
+  if (!httpAuthed(req, res)) return;
   const s = ptyStore.stats();
   res.json({
     uptime: Math.round(process.uptime()),
@@ -99,7 +107,67 @@ app.get('/health', (req, res) => {
     ptys: s.ptys,
     pausedPtys: s.paused,
     connections: io.engine ? io.engine.clientsCount : 0,
+    sessions: ptyStore.sessionsDetail(),
   });
+});
+
+// Descarga de archivos (dentro del jail de CWD)
+app.get('/fs/download', async (req, res) => {
+  try {
+    if (!httpAuthed(req, res)) return;
+    const r = await resolveJailed(String(req.query.path || ''));
+    if (r.error) return res.status(r.error === 'denied' ? 403 : 404).json({ error: r.error });
+    const st = await fs.promises.stat(r.path);
+    if (!st.isFile()) return res.status(400).json({ error: 'no es un archivo' });
+    const name = path.basename(r.path);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.sendFile(r.path);
+  } catch (err) {
+    log.error('[FS] download:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'error interno' });
+  }
+});
+
+// Subida de archivos (streaming a disco, con limite de tamaño y jail)
+app.post('/fs/upload', async (req, res) => {
+  try {
+    if (!httpAuthed(req, res)) return;
+    const name = path.basename(String(req.query.name || ''));
+    if (!name || name === '.' || name === '..') return res.status(400).json({ error: 'nombre invalido' });
+    const r = await resolveJailed(String(req.query.dir || ''));
+    if (r.error) return res.status(r.error === 'denied' ? 403 : 404).json({ error: r.error });
+    const st = await fs.promises.stat(r.path);
+    if (!st.isDirectory()) return res.status(400).json({ error: 'destino no es un directorio' });
+
+    const dest = path.join(r.path, name);
+    const out = fs.createWriteStream(dest);
+    let bytes = 0;
+    let aborted = false;
+    req.on('data', (chunk) => {
+      bytes += chunk.length;
+      if (bytes > UPLOAD_MAX && !aborted) {
+        aborted = true;
+        out.destroy();
+        fs.promises.unlink(dest).catch(() => {});
+        res.status(413).json({ error: 'archivo demasiado grande' });
+        req.destroy();
+      }
+    });
+    req.pipe(out);
+    out.on('finish', () => {
+      if (aborted) return;
+      log.info(`[FS] subido ${dest} (${bytes} bytes)`);
+      res.json({ ok: true, name, bytes });
+    });
+    out.on('error', (err) => {
+      if (aborted) return;
+      log.error('[FS] upload:', err.message);
+      if (!res.headersSent) res.status(500).json({ error: 'no se pudo guardar' });
+    });
+  } catch (err) {
+    log.error('[FS] upload:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'error interno' });
+  }
 });
 
 // Servir archivos estáticos (public/)
@@ -163,6 +231,8 @@ io.on('connection', (socket) => {
       maxSessions: MAX_SESSIONS,
       activeSessions: ptyStore.getActiveSessionsList(),
       shellType,
+      // Solo labels: las rutas de shell/cwd no salen del servidor
+      profiles: PROFILES.map(p => p.label),
     });
 
     // Iniciar session timeout si esta configurado
@@ -178,17 +248,40 @@ io.on('connection', (socket) => {
     }
   }));
 
-  // Crear nueva sesion PTY
-  socket.on('session:create', safe('session:create', (clientSessionId) => {
+  // Crear nueva sesion PTY. Acepta string (back-compat) o { id, profile }
+  socket.on('session:create', safe('session:create', (payload) => {
     if (!authenticated) return;
+    let clientSessionId = payload;
+    let profileLabel = null;
+    if (payload && typeof payload === 'object') {
+      clientSessionId = payload.id;
+      profileLabel = payload.profile;
+    }
     if (typeof clientSessionId !== 'string') return;
-    const result = ptyStore.createSession(socket, clientSessionId);
+
+    // El perfil se valida contra la lista del servidor: el cliente solo envia el label
+    let profile = null;
+    if (profileLabel) {
+      profile = PROFILES.find(p => p.label === profileLabel) || null;
+      if (!profile) {
+        socket.emit('session:error', { clientSessionId, error: 'Perfil desconocido' });
+        return;
+      }
+    }
+
+    const result = ptyStore.createSession(socket, clientSessionId, profile);
     if (result.duplicate) return;
     if (result.error) {
       socket.emit('session:error', { clientSessionId, error: result.error });
       return;
     }
     socket.emit('session:created', { clientSessionId, persistentId: result.persistentId });
+  }));
+
+  // Alternar grabacion de una sesion a fichero
+  socket.on('session:record', safe('session:record', (persistentId, callback) => {
+    if (!authenticated || typeof persistentId !== 'string' || typeof callback !== 'function') return;
+    callback(ptyStore.toggleRecording(persistentId));
   }));
 
   // Reconectar sesiones existentes
