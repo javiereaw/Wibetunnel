@@ -1,4 +1,4 @@
-import { state, isMobile, HEARTBEAT_INTERVAL_MS, saveSessions, loadSavedSessions, findSessionByPersistentId, trackOutput } from './state.js';
+import { state, isMobile, HEARTBEAT_INTERVAL_MS, inputBatch, saveSessions, loadSavedSessions, findSessionByPersistentId, trackOutput } from './state.js';
 import { createSession, adoptSession, switchSession, cleanupAllSessions } from './sessions.js';
 import { initShortcuts } from './settings.js';
 
@@ -166,6 +166,7 @@ export function connect() {
       match.session.persistentId = null;
       saveSessions();
     }
+    cleanOutputBuffer(persistentId);
   });
 
   state.socket.on('output', ({ id, data }) => {
@@ -193,8 +194,11 @@ export function connect() {
     if (match) {
       match.session.term.write('\r\n[Sesi\u00f3n terminada]\r\n');
       match.session.tabEl.classList.add('exited');
-      outputBuffers.delete(persistentId);
     }
+    cleanOutputBuffer(persistentId);
+    const batch = inputBatch.get(persistentId);
+    if (batch && batch.timer) clearTimeout(batch.timer);
+    inputBatch.delete(persistentId);
   });
 
   state.socket.on('disconnect', () => {

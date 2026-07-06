@@ -38,6 +38,9 @@ const BUFFER_SIZE = parseInt(process.env.WIBE_BUFFER_SIZE) || 51200;       // by
 const MAX_CONNECTIONS = parseInt(process.env.WIBE_MAX_CONN, 10) || 10;
 // Techo global de PTYs vivos (incluye huerfanos en grace period)
 const MAX_PTYS = parseInt(process.env.WIBE_MAX_PTYS, 10) || 15;
+// Backpressure: pausar el PTY si la cola de escritura del socket supera HIGH, reanudar bajo LOW
+const BP_HIGH = parseInt(process.env.WIBE_BP_HIGH, 10) || 262144; // 256 KB
+const BP_LOW = parseInt(process.env.WIBE_BP_LOW, 10) || 65536;    // 64 KB
 const AUTH_TIMEOUT_MS = 30000;
 const AUTH_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 const SHUTDOWN_GRACE_MS = 5000;
@@ -64,6 +67,14 @@ if (!TOKEN) {
   console.error('ERROR: WIBE_TOKEN no configurado en .env');
   console.error('Copia .env.example a .env y configura tu token');
   process.exit(1);
+}
+
+// Comparacion timing-safe contra el token configurado
+function tokenMatches(candidate) {
+  if (typeof candidate !== 'string') return false;
+  const a = Buffer.from(candidate, 'utf8');
+  const b = Buffer.from(TOKEN, 'utf8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 // === Inicializar servidor (HTTPS si hay certs, sino HTTP) ===
@@ -168,6 +179,20 @@ app.use((req, res, next) => {
   next();
 });
 
+// Health: estado de recursos, autenticado con el mismo token (Authorization: Bearer <token>)
+app.get('/health', (req, res) => {
+  const auth = req.headers.authorization || '';
+  const candidate = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!tokenMatches(candidate)) return res.status(401).json({ error: 'unauthorized' });
+  res.json({
+    uptime: Math.round(process.uptime()),
+    rssBytes: process.memoryUsage.rss(),
+    ptys: ptyStore.size,
+    pausedPtys: [...ptyStore.values()].filter(e => e.paused).length,
+    connections: io.engine ? io.engine.clientsCount : 0,
+  });
+});
+
 // Servir archivos estáticos (public/)
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -183,21 +208,56 @@ const socketSessions = new Map(); // socketId → Set<persistentId>
 const OUTPUT_BATCH_MS = 8; // ms entre flushes (≈120fps)
 const outputBatch = new Map(); // persistentId → { data, timer }
 
+// Bytes pendientes de enviar en la cola del transporte engine.io de un socket
+function getPendingBytes(socket) {
+  if (!socket || !socket.conn || !Array.isArray(socket.conn.writeBuffer)) return 0;
+  let total = 0;
+  for (const pkt of socket.conn.writeBuffer) {
+    if (pkt && typeof pkt.data === 'string') total += pkt.data.length;
+  }
+  return total;
+}
+
+// Backpressure: si el cliente no drena, pausar el PTY (flow control real via kernel)
+function checkBackpressure(persistentId, entry, socket) {
+  if (entry.paused) return;
+  if (getPendingBytes(socket) > BP_HIGH) {
+    entry.paused = true;
+    try { entry.pty.pause(); } catch (e) {}
+    console.log(`[BP] ${persistentId} pausado (cliente lento)`);
+  }
+}
+
+function resumeIfPaused(persistentId, entry) {
+  if (!entry.paused) return;
+  entry.paused = false;
+  try { entry.pty.resume(); } catch (e) {}
+  console.log(`[BP] ${persistentId} reanudado`);
+}
+
 function flushOutput(persistentId) {
   const batch = outputBatch.get(persistentId);
-  if (!batch || !batch.data) return;
+  if (!batch) return;
+  batch.timer = null;
+  if (!batch.data) return;
   const entry = ptyStore.get(persistentId);
   if (entry) {
     const targetSocket = io.sockets.sockets.get(entry.socketId);
     if (targetSocket) {
       targetSocket.emit('output', { id: persistentId, data: batch.data });
+      checkBackpressure(persistentId, entry, targetSocket);
     }
   }
   batch.data = '';
-  batch.timer = null;
 }
 
 function batchOutput(persistentId, data) {
+  const entry = ptyStore.get(persistentId);
+  if (!entry) return;
+  // Huerfano (sin socket conectado): no hay a quien enviar; appendBuffer ya
+  // guarda el replay. Evita armar timers de flush cada 8ms durante la gracia.
+  const target = io.sockets.sockets.get(entry.socketId);
+  if (!target || !target.connected) return;
   let batch = outputBatch.get(persistentId);
   if (!batch) {
     batch = { data: '', timer: null };
@@ -209,11 +269,26 @@ function batchOutput(persistentId, data) {
   }
 }
 
+// Buffer de replay como lista de chunks: evita realloc de string por cada chunk
 function appendBuffer(entry, data) {
-  entry.buffer += data;
-  if (entry.buffer.length > BUFFER_SIZE) {
-    entry.buffer = entry.buffer.slice(-BUFFER_SIZE);
+  entry.bufChunks.push(data);
+  entry.bufLen += data.length;
+  while (entry.bufLen > BUFFER_SIZE) {
+    const head = entry.bufChunks[0];
+    const excess = entry.bufLen - BUFFER_SIZE;
+    if (head.length <= excess) {
+      entry.bufChunks.shift();
+      entry.bufLen -= head.length;
+    } else {
+      entry.bufChunks[0] = head.slice(excess);
+      entry.bufLen -= excess;
+      break;
+    }
   }
+}
+
+function bufferToString(entry) {
+  return entry.bufChunks.join('');
 }
 
 function generatePersistentId() {
@@ -263,6 +338,8 @@ function claimSession(pid, entry, socket) {
   entry.socketId = socket.id;
   const mySet = socketSessions.get(socket.id);
   if (mySet) mySet.add(pid);
+  // El nuevo cliente puede drenar: si el PTY quedo pausado por el anterior, reanudar
+  resumeIfPaused(pid, entry);
 }
 
 // === Manejar conexiones WebSocket ===
@@ -275,6 +352,17 @@ io.on('connection', (socket) => {
   socket.on('error', (err) => {
     console.error(`[ERROR] Socket ${socket.id}:`, err && err.message ? err.message : err);
   });
+
+  // Al drenar la cola del transporte, reanudar los PTYs pausados por backpressure
+  socket.conn.on('drain', safe('drain', () => {
+    if (getPendingBytes(socket) > BP_LOW) return;
+    const myPtys = socketSessions.get(socket.id);
+    if (!myPtys) return;
+    for (const pid of myPtys) {
+      const e = ptyStore.get(pid);
+      if (e) resumeIfPaused(pid, e);
+    }
+  }));
 
   // Disconnect sockets that never authenticate
   const authTimer = setTimeout(() => {
@@ -292,18 +380,7 @@ io.on('connection', (socket) => {
       socket.disconnect(true);
       return;
     }
-    if (typeof clientToken !== 'string') {
-      recordFailedAuth(ip);
-      socket.emit('auth_failed');
-      socket.disconnect(true);
-      return;
-    }
-    // Timing-safe comparison to prevent token enumeration via timing attacks
-    const clientBuf = Buffer.from(clientToken, 'utf8');
-    const secretBuf = Buffer.from(TOKEN, 'utf8');
-    const tokensMatch = clientBuf.length === secretBuf.length &&
-                        crypto.timingSafeEqual(clientBuf, secretBuf);
-    if (!tokensMatch) {
+    if (!tokenMatches(clientToken)) {
       recordFailedAuth(ip);
       socket.emit('auth_failed');
       socket.disconnect(true);
@@ -381,11 +458,13 @@ io.on('connection', (socket) => {
     const persistentId = generatePersistentId();
     const entry = {
       pty: ptyProcess,
-      buffer: '',
+      bufChunks: [],
+      bufLen: 0,
       socketId: socket.id,
       cleanupTimer: null,
       clientSessionId,
-      lastActivity: Date.now()
+      lastActivity: Date.now(),
+      paused: false
     };
     ptyStore.set(persistentId, entry);
     if (myPtys) myPtys.add(persistentId);
@@ -446,7 +525,7 @@ io.on('connection', (socket) => {
 
       restored.push({
         persistentId: pid,
-        buffer: entry.buffer
+        buffer: bufferToString(entry)
       });
 
       console.log(`[~] Sesion ${pid} reconectada (PID: ${entry.pty.pid})`);
@@ -564,6 +643,8 @@ io.on('connection', (socket) => {
         ptyStore.delete(pid);
       } else {
         // Grace period: PTY sigue corriendo, output se buferea
+        // Si estaba pausado por backpressure, reanudar: los procesos del dueño deben seguir
+        resumeIfPaused(pid, entry);
         console.log(`[!] Sesion ${pid} huerfana, grace ${RECONNECT_GRACE}s (PID: ${entry.pty.pid})`);
         entry.cleanupTimer = setTimeout(() => {
           const e = ptyStore.get(pid);
@@ -579,6 +660,14 @@ io.on('connection', (socket) => {
     socketSessions.delete(socket.id);
   }));
 });
+
+// Log periodico de recursos (journald se encarga de la rotacion)
+const HEALTH_LOG_INTERVAL_MS = 5 * 60 * 1000;
+setInterval(() => {
+  const rssMb = Math.round(process.memoryUsage.rss() / 1048576);
+  const conns = io.engine ? io.engine.clientsCount : 0;
+  console.log(`[HEALTH] RSS ${rssMb}MB | PTYs ${ptyStore.size} | conexiones ${conns}`);
+}, HEALTH_LOG_INTERVAL_MS).unref();
 
 // === Arrancar servidor ===
 server.listen(PORT, () => {

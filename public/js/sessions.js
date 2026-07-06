@@ -1,7 +1,35 @@
 import { state, isMobile, INPUT_BATCH_MS, inputBatch, active, saveSessions, loadSavedSessions, findSessionByPersistentId, getPref } from './state.js';
+import { cleanOutputBuffer } from './socket.js';
 
 const tabsEl = document.getElementById('tabs');
 const terminalsEl = document.getElementById('terminals');
+
+// WebGL solo en la pestaña activa: 1 contexto GPU en vez de uno por sesion.
+// Las pestañas ocultas (display:none) caen al renderer DOM, que no pinta nada.
+function enableWebgl(s) {
+  if (isMobile || s.webglAddon) return;
+  try {
+    const addon = new WebglAddon.WebglAddon();
+    addon.onContextLoss(() => {
+      try { addon.dispose(); } catch (e) {}
+      if (s.webglAddon === addon) s.webglAddon = null;
+      // Reintento diferido: si la GPU se recupera y la tab sigue activa, recrear
+      setTimeout(() => {
+        if (state.sessions.has(s.id) && state.activeId === s.id) enableWebgl(s);
+      }, 2000);
+    });
+    s.term.loadAddon(addon);
+    s.webglAddon = addon;
+  } catch (e) {
+    s.webglAddon = null;
+  }
+}
+
+function disableWebgl(s) {
+  if (!s.webglAddon) return;
+  try { s.webglAddon.dispose(); } catch (e) {}
+  s.webglAddon = null;
+}
 
 export function setupSessionUI(id, displayName) {
   const tab = document.createElement('button');
@@ -51,14 +79,6 @@ export function setupSessionUI(id, displayName) {
     }
   });
 
-  if (!isMobile) {
-    try {
-      const webglAddon = new WebglAddon.WebglAddon();
-      webglAddon.onContextLoss(() => { webglAddon.dispose(); });
-      term.loadAddon(webglAddon);
-    } catch (e) {}
-  }
-
   term.onData((data) => {
     if (!state.socket || !state.socket.connected) return;
     const s = state.sessions.get(id);
@@ -84,7 +104,7 @@ export function setupSessionUI(id, displayName) {
 
   panel.addEventListener('touchstart', () => term.focus());
 
-  state.sessions.set(id, { term, fitAddon, searchAddon, tabEl: tab, panelEl: panel, name: displayName, persistentId: null, atBottom: true });
+  state.sessions.set(id, { id, term, fitAddon, searchAddon, webglAddon: null, tabEl: tab, panelEl: panel, name: displayName, persistentId: null, atBottom: true });
   return id;
 }
 
@@ -118,6 +138,7 @@ export function switchSession(id) {
   tabsEl.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.id === id));
   state.sessions.forEach((s, sid) => {
     s.panelEl.classList.toggle('active', sid === id);
+    if (sid === id) enableWebgl(s); else disableWebgl(s);
   });
   const s = active();
   document.getElementById('btn-bottom').classList.toggle('scrolled-up', !s.atBottom);
@@ -130,6 +151,14 @@ export function switchSession(id) {
   }, 50);
 }
 
+function releaseSessionResources(s) {
+  if (!s.persistentId) return;
+  cleanOutputBuffer(s.persistentId);
+  const batch = inputBatch.get(s.persistentId);
+  if (batch && batch.timer) clearTimeout(batch.timer);
+  inputBatch.delete(s.persistentId);
+}
+
 export function closeSession(id) {
   const s = state.sessions.get(id);
   if (!s) return;
@@ -138,6 +167,7 @@ export function closeSession(id) {
       state.socket.emit('session:kill', s.persistentId);
     }
   }
+  releaseSessionResources(s);
   s.term.dispose();
   s.tabEl.remove();
   s.panelEl.remove();
@@ -152,6 +182,7 @@ export function closeSession(id) {
 
 export function cleanupAllSessions() {
   state.sessions.forEach(s => {
+    releaseSessionResources(s);
     s.term.dispose();
     s.tabEl.remove();
     s.panelEl.remove();
