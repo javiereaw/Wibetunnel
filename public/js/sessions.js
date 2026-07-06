@@ -68,6 +68,8 @@ export function setupSessionUI(id, displayName) {
   const searchAddon = new SearchAddon.SearchAddon();
   term.loadAddon(fitAddon);
   term.loadAddon(searchAddon);
+  // URLs clicables en la salida del terminal
+  try { term.loadAddon(new WebLinksAddon.WebLinksAddon()); } catch (e) {}
   term.open(panel);
 
   term.onScroll(() => {
