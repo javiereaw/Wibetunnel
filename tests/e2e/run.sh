@@ -8,7 +8,8 @@ PORT="${WIBE_TEST_PORT:-4021}"
 TOKEN="${WIBE_TEST_TOKEN:-smoketest-token}"
 
 WIBE_PORT="$PORT" WIBE_TOKEN="$TOKEN" WIBE_SHELL=/bin/bash WIBE_CWD="$HOME" \
-  WIBE_BP_HIGH=8000 WIBE_BP_LOW=2000 node server.js > /tmp/wibetunnel-e2e-server.log 2>&1 &
+  WIBE_BP_HIGH=8000 WIBE_BP_LOW=2000 WIBE_LOG_LEVEL=debug \
+  node server.js > /tmp/wibetunnel-e2e-server.log 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null' EXIT
 sleep 2

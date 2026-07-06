@@ -1,5 +1,6 @@
 // Wibetunnel - Terminal web minimalista
 // Servidor principal: Express + Socket.IO; la logica vive en lib/
+const log = require('./lib/log');
 const express = require('express');
 const http = require('http');
 const https = require('https');
@@ -20,8 +21,8 @@ const {
 
 // Validar que el token esté configurado (obligatorio)
 if (!TOKEN) {
-  console.error('ERROR: WIBE_TOKEN no configurado en .env');
-  console.error('Copia .env.example a .env y configura tu token');
+  log.error('ERROR: WIBE_TOKEN no configurado en .env');
+  log.error('Copia .env.example a .env y configura tu token');
   process.exit(1);
 }
 
@@ -35,10 +36,10 @@ if (SSL_CERT && SSL_KEY) {
       key: fs.readFileSync(SSL_KEY),
     };
     server = https.createServer(sslOpts, app);
-    console.log('[SSL] HTTPS activado');
+    log.info('[SSL] HTTPS activado');
   } catch (err) {
-    console.error('[SSL] Error cargando certificados:', err.message);
-    console.error('[SSL] Cayendo a HTTP');
+    log.error('[SSL] Error cargando certificados:', err.message);
+    log.error('[SSL] Cayendo a HTTP');
     server = http.createServer(app);
   }
 } else {
@@ -51,7 +52,7 @@ const io = new Server(server, {
   maxHttpBufferSize: 1e6,
   allowRequest: (req, callback) => {
     if (io && io.engine && io.engine.clientsCount >= MAX_CONNECTIONS) {
-      console.warn('[CONN] Rechazando: max conexiones alcanzado');
+      log.warn('[CONN] Rechazando: max conexiones alcanzado');
       return callback('Too many connections', false);
     }
     const origin = req.headers.origin;
@@ -60,7 +61,7 @@ const io = new Server(server, {
     const proto = (SSL_CERT && SSL_KEY) ? 'https' : 'http';
     if (origin === `${proto}://${host}`) return callback(null, true);
     if (ALLOWED_ORIGINS.has(origin)) return callback(null, true);
-    console.warn(`[CORS] Rechazando origen: ${origin}`);
+    log.warn(`[CORS] Rechazando origen: ${origin}`);
     callback('Cross-origin not allowed', false);
   },
 });
@@ -110,10 +111,10 @@ function safe(name, fn) {
     try {
       const result = fn(...args);
       if (result && typeof result.catch === 'function') {
-        result.catch((err) => console.error(`[ERROR] Handler ${name}:`, err));
+        result.catch((err) => log.error(`[ERROR] Handler ${name}:`, err));
       }
     } catch (err) {
-      console.error(`[ERROR] Handler ${name}:`, err);
+      log.error(`[ERROR] Handler ${name}:`, err);
     }
   };
 }
@@ -126,7 +127,7 @@ io.on('connection', (socket) => {
   const ip = getClientIp(socket);
 
   socket.on('error', (err) => {
-    console.error(`[ERROR] Socket ${socket.id}:`, err && err.message ? err.message : err);
+    log.error(`[ERROR] Socket ${socket.id}:`, err && err.message ? err.message : err);
   });
 
   // Al drenar la cola del transporte, reanudar los PTYs pausados por backpressure
@@ -169,7 +170,7 @@ io.on('connection', (socket) => {
       timeoutChecker = setInterval(() => {
         const mostRecent = ptyStore.latestActivity(socket.id, socketLastActivity);
         if ((Date.now() - mostRecent) / 1000 / 60 >= SESSION_TIMEOUT) {
-          console.log(`[TIMEOUT] Socket ${ip} desconectado por inactividad (${SESSION_TIMEOUT} min)`);
+          log.info(`[TIMEOUT] Socket ${ip} desconectado por inactividad (${SESSION_TIMEOUT} min)`);
           socket.emit('session:timeout');
           socket.disconnect(true);
         }
@@ -253,16 +254,16 @@ setInterval(() => {
   const rssMb = Math.round(process.memoryUsage.rss() / 1048576);
   const s = ptyStore.stats();
   const conns = io.engine ? io.engine.clientsCount : 0;
-  console.log(`[HEALTH] RSS ${rssMb}MB | PTYs ${s.ptys} | conexiones ${conns}`);
+  log.info(`[HEALTH] RSS ${rssMb}MB | PTYs ${s.ptys} | conexiones ${conns}`);
 }, HEALTH_LOG_INTERVAL_MS).unref();
 
 // === Arrancar servidor ===
 server.listen(PORT, () => {
   const proto = (SSL_CERT && SSL_KEY) ? 'https' : 'http';
-  console.log(`Wibetunnel corriendo en ${proto}://localhost:${PORT}`);
-  if (SESSION_TIMEOUT > 0) console.log(`[TIMEOUT] Inactividad: ${SESSION_TIMEOUT} min`);
-  if (RATE_MAX) console.log(`[RATE] Max ${RATE_MAX} intentos fallidos, bloqueo ${RATE_WINDOW} min`);
-  console.log(`[RECONNECT] Grace: ${RECONNECT_GRACE}s, Buffer: ${BUFFER_SIZE} bytes`);
+  log.info(`Wibetunnel corriendo en ${proto}://localhost:${PORT}`);
+  if (SESSION_TIMEOUT > 0) log.info(`[TIMEOUT] Inactividad: ${SESSION_TIMEOUT} min`);
+  if (RATE_MAX) log.info(`[RATE] Max ${RATE_MAX} intentos fallidos, bloqueo ${RATE_WINDOW} min`);
+  log.info(`[RECONNECT] Grace: ${RECONNECT_GRACE}s, Buffer: ${BUFFER_SIZE} bytes`);
 });
 
 // === Graceful shutdown: limpiar PTYs (incluyendo huerfanos) y cerrar servidor ===
@@ -270,17 +271,17 @@ let shuttingDown = false;
 function gracefulShutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`\n[SHUTDOWN] Recibido ${signal}, limpiando...`);
+  log.info(`\n[SHUTDOWN] Recibido ${signal}, limpiando...`);
   ptyStore.shutdownAll();
   for (const [, socket] of io.sockets.sockets) {
     socket.disconnect(true);
   }
   server.close(() => {
-    console.log('[SHUTDOWN] Servidor cerrado limpiamente');
+    log.info('[SHUTDOWN] Servidor cerrado limpiamente');
     process.exit(0);
   });
   setTimeout(() => {
-    console.error('[SHUTDOWN] Forzando salida');
+    log.error('[SHUTDOWN] Forzando salida');
     process.exit(1);
   }, SHUTDOWN_GRACE_MS);
 }
@@ -294,12 +295,12 @@ const CRASH_BURST_MAX = 3;
 const CRASH_BURST_WINDOW_MS = 60000;
 let crashTimes = [];
 function recordCrash(kind, err) {
-  console.error(`[ERROR] ${kind}:`, err);
+  log.error(`[ERROR] ${kind}:`, err);
   const now = Date.now();
   crashTimes = crashTimes.filter(t => now - t < CRASH_BURST_WINDOW_MS);
   crashTimes.push(now);
   if (crashTimes.length > CRASH_BURST_MAX) {
-    console.error(`[ERROR] ${crashTimes.length} errores en ${CRASH_BURST_WINDOW_MS / 1000}s, apagando`);
+    log.error(`[ERROR] ${crashTimes.length} errores en ${CRASH_BURST_WINDOW_MS / 1000}s, apagando`);
     gracefulShutdown(kind);
   }
 }

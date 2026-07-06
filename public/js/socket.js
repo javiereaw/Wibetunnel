@@ -27,10 +27,6 @@ function setStatus(text, { retry = false } = {}) {
   }
   el.style.display = 'block';
 }
-function hideStatus() {
-  document.getElementById('status').style.display = 'none';
-}
-
 // Restaurar sesiones persistentes: emite session:reconnect, escribe buffer, reajusta terminal
 function doReconnect(pids, statusEl, onRestored) {
   state.socket.emit('session:reconnect', pids, (restored) => {
