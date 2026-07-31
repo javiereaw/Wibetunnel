@@ -53,6 +53,41 @@ const TOKEN = process.env.WIBE_TEST_TOKEN || 'smoketest-token';
   if (noauth !== 401) { console.log('FAIL auth: status', noauth); process.exit(1); }
   console.log('PASS: descarga sin token rechazada (401)');
 
+  // --- Rate limit HTTP: los probes SIN token no cuentan como intento fallido ---
+  const probes = await fetchJson(`
+    Promise.all(Array.from({ length: 10 }, () =>
+      fetch('/fs/download?path=x').then(r => r.status)
+    ))
+  `);
+  if (probes.some(s => s !== 401)) { console.log('FAIL probes:', JSON.stringify(probes)); process.exit(1); }
+  const afterProbes = await fetchJson(`
+    fetch('/health', { headers: { Authorization: 'Bearer ${TOKEN}' } }).then(r => r.status)
+  `);
+  if (afterProbes !== 200) { console.log('FAIL: probes sin token dispararon el rate limit:', afterProbes); process.exit(1); }
+  console.log('PASS: 10 probes sin token no bloquean al usuario legitimo');
+
+  // --- Symlink dentro del jail: subir sobre el debe rechazarse (400) ---
+  const testCwd = process.env.WIBE_TEST_CWD;
+  if (testCwd) {
+    const trap = path.join(testCwd, 'trap-link.txt');
+    try { fs.unlinkSync(trap); } catch (_) { /* no existia */ }
+    fs.symlinkSync('/etc/hostname', trap);
+    const sym = await fetchJson(`
+      fetch('/fs/upload?dir=&name=trap-link.txt', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ${TOKEN}', 'Content-Type': 'application/octet-stream' },
+        body: 'pwned'
+      }).then(r => r.status)
+    `);
+    if (sym !== 400) { console.log('FAIL symlink upload: status', sym); process.exit(1); }
+    console.log('PASS: upload sobre symlink rechazado (400)');
+  }
+
+  // --- /healthz: liveness sin auth ---
+  const hz = await fetchJson(`fetch('/healthz').then(r => r.json())`);
+  if (!hz || hz.ok !== true) { console.log('FAIL healthz:', JSON.stringify(hz)); process.exit(1); }
+  console.log('PASS: /healthz responde sin auth');
+
   // --- /health con detalle de sesiones ---
   const health = await fetchJson(`
     fetch('/health', { headers: { Authorization: 'Bearer ${TOKEN}' } }).then(r => r.json())
@@ -60,7 +95,10 @@ const TOKEN = process.env.WIBE_TEST_TOKEN || 'smoketest-token';
   if (!Array.isArray(health.sessions) || health.sessions.length < 1) {
     console.log('FAIL health:', JSON.stringify(health)); process.exit(1);
   }
-  console.log(`PASS: /health con ${health.sessions.length} sesión(es), RSS ${Math.round(health.rssBytes / 1048576)}MB`);
+  if (!health.metrics || typeof health.metrics.ptySpawns !== 'number' || health.metrics.ptySpawns < 1) {
+    console.log('FAIL health metrics:', JSON.stringify(health.metrics)); process.exit(1);
+  }
+  console.log(`PASS: /health con ${health.sessions.length} sesión(es), RSS ${Math.round(health.rssBytes / 1048576)}MB, metrics.ptySpawns=${health.metrics.ptySpawns}`);
 
   // --- Perfiles: el servidor anuncia los labels ---
   const profiles = await page.evaluate(async () => {
@@ -136,6 +174,16 @@ const TOKEN = process.env.WIBE_TEST_TOKEN || 'smoketest-token';
   `);
   if (pwa.some(s => s !== 200)) { console.log('FAIL pwa assets:', JSON.stringify(pwa)); process.exit(1); }
   console.log('PASS: manifest, sw.js e iconos servidos');
+
+  // El /sw.js dinamico debe llevar el sello de build sustituido
+  const swText = await fetchJson(`fetch('/sw.js').then(r => r.text())`);
+  if (swText.includes('__WIBE_BUILD__')) {
+    console.log('FAIL: /sw.js sirve el placeholder sin sustituir'); process.exit(1);
+  }
+  if (!/wibetunnel-[0-9a-f]+/.test(swText)) {
+    console.log('FAIL: /sw.js no contiene el nombre de cache sellado'); process.exit(1);
+  }
+  console.log('PASS: /sw.js dinámico con sello de build');
 
   await browser.close();
   process.exit(0);

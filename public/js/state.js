@@ -22,6 +22,21 @@ export const state = {
 
 export const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || 'ontouchstart' in window;
 
+// Identidad estable por navegador: las sesiones del servidor pertenecen a este id,
+// no al socket. Memoizada en modulo: con localStorage bloqueado (incognito) el id
+// sigue siendo estable durante la vida de la pagina.
+let clientId = null;
+export function getClientId() {
+  if (clientId) return clientId;
+  clientId = getPref('wibe-client-id', null);
+  if (!clientId) {
+    clientId = (crypto.randomUUID && crypto.randomUUID()) ||
+      ('cid-' + Math.random().toString(36).slice(2) + Date.now().toString(36));
+    setPref('wibe-client-id', clientId);
+  }
+  return clientId;
+}
+
 export const INPUT_BATCH_MS = isMobile ? 12 : 4;
 export const RESIZE_DEBOUNCE_DESKTOP_MS = 50;
 export const RESIZE_DEBOUNCE_MOBILE_MS = 150;

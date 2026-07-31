@@ -1,9 +1,55 @@
-import { state, active, isMobile, setPref } from './state.js';
-import { createSession, closeSession, switchSession } from './sessions.js';
+import { state, active, isMobile, setPref, saveSessions, findSessionByPersistentId } from './state.js';
+import { createSession, closeSession, switchSession, adoptSession } from './sessions.js';
 import { setThemeMode, applyTheme } from './theme.js';
 import { openSearch, applyFontSize, showToast } from './ui.js';
 import { openFileBrowser } from './filebrowser.js';
 import { openStatusPanel } from './statuspanel.js';
+
+// Emit con ack y timeout; resuelve null si no hay respuesta (nunca cuelga la UI)
+function emitAck(event, ...args) {
+  return new Promise((resolve) => {
+    state.socket.timeout(8000).emit(event, ...args, (err, res) => resolve(err ? null : res));
+  });
+}
+
+// Recuperar sesiones: re-adopta tabs marcadas como movidas y adopta huerfanas
+// de otros dispositivos (el dueño anterior recibe session:taken con su aviso)
+async function recoverSessions() {
+  if (!state.socket || !state.socket.connected) { showToast('Sin conexión con el servidor'); return; }
+  let recovered = 0;
+  for (const [, s] of state.sessions) {
+    if (!s.takenPid) continue;
+    const r = await emitAck('session:adopt', s.takenPid);
+    if (r && r.persistentId) {
+      s.persistentId = r.persistentId;
+      s.takenPid = null;
+      s.tabEl.classList.remove('taken');
+      s.term.reset();
+      if (r.buffer) s.term.write(r.buffer);
+      recovered++;
+    }
+  }
+  const list = await emitAck('session:list');
+  if (Array.isArray(list)) {
+    for (const e of list) {
+      if (e.mine || !e.orphan) continue;
+      if (findSessionByPersistentId(e.persistentId)) continue;
+      if (state.sessions.size >= state.maxSessions) break;
+      const r = await emitAck('session:adopt', e.persistentId);
+      if (r && r.persistentId) {
+        const id = adoptSession(r.persistentId, null);
+        if (id) {
+          const s2 = state.sessions.get(id);
+          if (r.buffer) s2.term.write(r.buffer);
+          switchSession(id);
+          recovered++;
+        }
+      }
+    }
+  }
+  saveSessions();
+  showToast(recovered ? `Recuperada${recovered > 1 ? 's' : ''} ${recovered} sesión${recovered > 1 ? 'es' : ''}` : 'No hay sesiones que recuperar');
+}
 
 const paletteEl = document.getElementById('palette');
 const paletteInputEl = document.getElementById('palette-input');
@@ -21,6 +67,7 @@ function getPaletteCommands() {
     { name: 'Copiar selección', hint: '', action: () => { const s = active(); if (s) { const sel = s.term.getSelection(); if (sel) navigator.clipboard.writeText(sel).catch(() => showToast('No se pudo copiar al portapapeles')); } } },
     { name: 'Olvidar token guardado', hint: '', action: () => { setPref('wibe-token', null); showToast('Token olvidado en este dispositivo'); } },
     { name: 'Estado del servidor', hint: '', action: () => openStatusPanel() },
+    { name: 'Recuperar sesiones (movidas / otro dispositivo)', hint: '', action: () => recoverSessions() },
     { name: 'Instalar como app', hint: 'PWA', action: async () => {
       if (state.installPrompt) {
         state.installPrompt.prompt();

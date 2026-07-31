@@ -45,9 +45,11 @@ function fakeSpawn() {
     _exitCb: null,
     onData(cb) { this._dataCb = cb; },
     onExit(cb) { this._exitCb = cb; },
-    write() {},
+    killThrows: false,
+    writeThrows: false,
+    write() { if (this.writeThrows) throw new Error('EIO: i/o error'); },
     resize() {},
-    kill() { this.killed = true; },
+    kill() { if (this.killThrows) throw new Error('ESRCH: no such process'); this.killed = true; },
     pause() { this.pauseCalls++; },
     resume() { this.resumeCalls++; },
     emitData(d) { if (this._dataCb) this._dataCb(d); },
@@ -200,4 +202,119 @@ test('reconnect de pid inexistente devuelve lista vacia', () => {
   const sock = fakeSocket('s1');
   const restored = store.reconnectSessions(sock, ['pty-999-zzz']);
   assert.deepStrictEqual(restored, []);
+});
+
+// === Anti crash-burst: kill que lanza no debe escapar (uncaughtException) ===
+
+test('killSession con pty.kill que lanza: limpia el store igualmente', () => {
+  const sock = fakeSocket('s1');
+  const { persistentId } = store.createSession(sock, 'ses-1');
+  spawned[0].killThrows = true;
+
+  assert.strictEqual(store.killSession(persistentId), true, 'no lanza y devuelve true');
+  assert.strictEqual(store.stats().ptys, 0, 'la entry se elimina aunque kill falle');
+});
+
+test('grace expirado con kill que lanza: no escapa del timer y limpia', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const sock = fakeSocket('s1');
+  store.createSession(sock, 'ses-1');
+  spawned[0].killThrows = true;
+
+  store.handleDisconnect(sock);
+  // Si el throw escapara del callback, node --test lo marcaria como uncaught
+  t.mock.timers.tick(5000);
+  assert.strictEqual(store.stats().ptys, 0, 'store limpio tras la gracia');
+});
+
+test('writeInput sobre pty muerto (EIO) no lanza', () => {
+  const sock = fakeSocket('s1');
+  const { persistentId } = store.createSession(sock, 'ses-1');
+  spawned[0].writeThrows = true;
+  assert.doesNotThrow(() => store.writeInput(persistentId, 'ls\r'));
+});
+
+// === Propiedad de sesiones (clientId) ===
+
+test('reconnect de otro clientId no roba la sesion ni emite session:taken', () => {
+  const sockA = fakeSocket('sA');
+  store.setSocketClient('sA', 'client-A');
+  const { persistentId } = store.createSession(sockA, 'ses-1');
+
+  const sockB = fakeSocket('sB');
+  store.setSocketClient('sB', 'client-B');
+  const restored = store.reconnectSessions(sockB, [persistentId]);
+
+  assert.deepStrictEqual(restored, [], 'B no restaura la sesion de A');
+  const taken = sockA.emitted.filter(([ev]) => ev === 'session:taken');
+  assert.strictEqual(taken.length, 0, 'A no fue desposeido');
+});
+
+test('reconnect del mismo clientId en socket nuevo restaura (reload del navegador)', () => {
+  const sockA = fakeSocket('sA');
+  store.setSocketClient('sA', 'client-A');
+  const { persistentId } = store.createSession(sockA, 'ses-1');
+  spawned[0].emitData('estado');
+
+  const sockA2 = fakeSocket('sA2');
+  store.setSocketClient('sA2', 'client-A');
+  const restored = store.reconnectSessions(sockA2, [persistentId]);
+
+  assert.strictEqual(restored.length, 1);
+  assert.strictEqual(restored[0].buffer, 'estado');
+});
+
+test('adoptSession cruza la propiedad y notifica al dueño anterior', () => {
+  const sockA = fakeSocket('sA');
+  store.setSocketClient('sA', 'client-A');
+  const { persistentId } = store.createSession(sockA, 'ses-1');
+
+  const sockB = fakeSocket('sB');
+  store.setSocketClient('sB', 'client-B');
+  const adopted = store.adoptSession(sockB, persistentId);
+
+  assert.ok(adopted && adopted.persistentId === persistentId, 'B adopta la sesion');
+  const taken = sockA.emitted.filter(([ev]) => ev === 'session:taken');
+  assert.strictEqual(taken.length, 1, 'A recibe session:taken');
+
+  // Tras la adopcion, A ya no puede recuperarla via reconnect normal
+  const backA = store.reconnectSessions(sockA, [persistentId]);
+  assert.deepStrictEqual(backA, [], 'la propiedad ahora es de B');
+});
+
+test('getActiveSessionsList filtra por clientId y marca mine en modo foreign', () => {
+  const sockA = fakeSocket('sA');
+  store.setSocketClient('sA', 'client-A');
+  store.createSession(sockA, 'ses-1');
+  const sockB = fakeSocket('sB');
+  store.setSocketClient('sB', 'client-B');
+  store.createSession(sockB, 'ses-2');
+
+  const soloB = store.getActiveSessionsList('client-B');
+  assert.strictEqual(soloB.length, 1, 'auth_success solo ve las propias');
+  assert.strictEqual(soloB[0].mine, true);
+
+  const todas = store.getActiveSessionsList('client-B', true);
+  assert.strictEqual(todas.length, 2, 'session:list ve tambien las ajenas');
+  assert.deepStrictEqual(todas.map(e => e.mine).sort(), [false, true]);
+});
+
+test('sesion legacy (sin clientId) sigue siendo reclamable por cualquiera', () => {
+  const sockOld = fakeSocket('sOld'); // sin setSocketClient: frontend antiguo
+  const { persistentId } = store.createSession(sockOld, 'ses-1');
+
+  const sockNew = fakeSocket('sNew');
+  store.setSocketClient('sNew', 'client-N');
+  const restored = store.reconnectSessions(sockNew, [persistentId]);
+  assert.strictEqual(restored.length, 1, 'continuidad tras el deploy');
+});
+
+// === Duplicate create idempotente ===
+
+test('clientSessionId duplicado devuelve el persistentId existente', () => {
+  const sock = fakeSocket('s1');
+  const orig = store.createSession(sock, 'ses-1');
+  const dup = store.createSession(sock, 'ses-1');
+  assert.strictEqual(dup.duplicate, true);
+  assert.strictEqual(dup.persistentId, orig.persistentId, 'permite re-emitir session:created');
 });

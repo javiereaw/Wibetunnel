@@ -9,7 +9,8 @@ const path = require('path');
 const fs = require('fs');
 
 const config = require('./lib/config');
-const { getClientIp, tokenMatches, checkRateLimit, recordFailedAuth, clearAuthAttempts } = require('./lib/auth');
+const { getClientIp, getHttpClientIp, tokenMatches, checkRateLimit, recordFailedAuth, clearAuthAttempts } = require('./lib/auth');
+const metrics = require('./lib/metrics');
 const ptyStore = require('./lib/pty-store');
 const { listDirectory, resolveJailed } = require('./lib/fs-handler');
 
@@ -88,14 +89,29 @@ app.use((req, res, next) => {
   next();
 });
 
-// Auth HTTP compartida: Authorization: Bearer <token>
+// Auth HTTP compartida: Authorization: Bearer <token>, con el mismo rate
+// limiter que el auth de socket (antes los endpoints HTTP permitian brute-force)
 function httpAuthed(req, res) {
+  const ip = getHttpClientIp(req);
+  if (!checkRateLimit(ip)) {
+    res.status(429).json({ error: 'too many attempts' });
+    return false;
+  }
   const auth = req.headers.authorization || '';
   const candidate = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (tokenMatches(candidate)) return true;
+  if (tokenMatches(candidate)) {
+    clearAuthAttempts(ip);
+    return true;
+  }
+  // Solo cuenta como intento si se presento un token: los probes sin header
+  // (401 esperado) no deben poder bloquear al usuario real
+  if (candidate) recordFailedAuth(ip);
   res.status(401).json({ error: 'unauthorized' });
   return false;
 }
+
+// Liveness sin auth: solo "ok", ningun dato mas (probes, smoke, uptime checkers)
+app.get('/healthz', (req, res) => res.json({ ok: true }));
 
 // Health: estado de recursos + detalle por sesion (para el panel de estado)
 app.get('/health', (req, res) => {
@@ -108,6 +124,7 @@ app.get('/health', (req, res) => {
     pausedPtys: s.paused,
     connections: io.engine ? io.engine.clientsCount : 0,
     sessions: ptyStore.sessionsDetail(),
+    metrics: metrics.snapshot(),
   });
 });
 
@@ -120,6 +137,7 @@ app.get('/fs/download', async (req, res) => {
     const st = await fs.promises.stat(r.path);
     if (!st.isFile()) return res.status(400).json({ error: 'no es un archivo' });
     const name = path.basename(r.path);
+    metrics.inc('downloads');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
     res.sendFile(r.path);
   } catch (err) {
@@ -140,6 +158,12 @@ app.post('/fs/upload', async (req, res) => {
     if (!st.isDirectory()) return res.status(400).json({ error: 'destino no es un directorio' });
 
     const dest = path.join(r.path, name);
+    // No escribir sobre symlinks preexistentes: un enlace plantado dentro del
+    // jail permitiria escribir fuera (p.ej. ~/.ssh/authorized_keys)
+    const lst = await fs.promises.lstat(dest).catch(() => null);
+    if (lst && (lst.isSymbolicLink() || !lst.isFile())) {
+      return res.status(400).json({ error: 'destino invalido' });
+    }
     const out = fs.createWriteStream(dest);
     let bytes = 0;
     let aborted = false;
@@ -156,6 +180,7 @@ app.post('/fs/upload', async (req, res) => {
     req.pipe(out);
     out.on('finish', () => {
       if (aborted) return;
+      metrics.inc('uploads');
       log.info(`[FS] subido ${dest} (${bytes} bytes)`);
       res.json({ ok: true, name, bytes });
     });
@@ -170,10 +195,23 @@ app.post('/fs/upload', async (req, res) => {
   }
 });
 
+// /sw.js dinamico (ANTES del static, o ganaria el fichero en disco): sustituye
+// __WIBE_BUILD__ por el sello de build — cada deploy que toca public/ produce
+// un SW byte-distinto y fuerza reinstalacion + refresco del precache
+const { buildStamp } = require('./lib/build-stamp');
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const swBody = fs.readFileSync(path.join(PUBLIC_DIR, 'sw.js'), 'utf8')
+  .replaceAll('__WIBE_BUILD__', buildStamp(PUBLIC_DIR));
+app.get('/sw.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.send(swBody);
+});
+
 // Servir archivos estáticos (public/) con revalidacion forzada: sin esto el
 // navegador aplica cache heuristica y puede quedarse con JS viejo tras un deploy
 // (el ETag hace que la revalidacion sea un 304 barato)
-app.use(express.static(path.join(__dirname, 'public'), {
+app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
 }));
 
@@ -183,9 +221,13 @@ function safe(name, fn) {
     try {
       const result = fn(...args);
       if (result && typeof result.catch === 'function') {
-        result.catch((err) => log.error(`[ERROR] Handler ${name}:`, err));
+        result.catch((err) => {
+          metrics.err(name);
+          log.error(`[ERROR] Handler ${name}:`, err);
+        });
       }
     } catch (err) {
+      metrics.err(name);
       log.error(`[ERROR] Handler ${name}:`, err);
     }
   };
@@ -194,6 +236,7 @@ function safe(name, fn) {
 // === Manejar conexiones WebSocket ===
 io.on('connection', (socket) => {
   let authenticated = false;
+  let clientId = null;
   let socketLastActivity = Date.now();
   let timeoutChecker = null;
   const ip = getClientIp(socket);
@@ -212,15 +255,26 @@ io.on('connection', (socket) => {
 
   ptyStore.registerSocket(socket.id);
 
-  // Autenticacion con rate limiting
-  socket.on('auth', safe('auth', (clientToken) => {
+  // Autenticacion con rate limiting. Acepta string (back-compat) o { token, clientId }
+  socket.on('auth', safe('auth', (payload) => {
     if (authenticated) return; // Prevent re-auth
+    let clientToken = payload;
+    if (payload && typeof payload === 'object') {
+      clientToken = payload.token;
+      if (typeof payload.clientId === 'string' && payload.clientId.length > 0 && payload.clientId.length <= 64) {
+        clientId = payload.clientId;
+      }
+    }
     if (!checkRateLimit(ip)) {
+      metrics.inc('authRatelimited');
+      metrics.event('auth_ratelimited', { ip });
       socket.emit('auth_ratelimited');
       socket.disconnect(true);
       return;
     }
     if (!tokenMatches(clientToken)) {
+      metrics.inc('authFail');
+      metrics.event('auth_fail', { ip });
       recordFailedAuth(ip);
       socket.emit('auth_failed');
       socket.disconnect(true);
@@ -228,12 +282,16 @@ io.on('connection', (socket) => {
     }
     clearTimeout(authTimer);
     clearAuthAttempts(ip);
+    metrics.inc('authOk');
     authenticated = true;
+    if (clientId) ptyStore.setSocketClient(socket.id, clientId);
     const shellType = SHELL.toLowerCase().includes('powershell') ? 'powershell' : 'posix';
     socket.emit('auth_success', {
       shortcuts: SHORTCUTS,
       maxSessions: MAX_SESSIONS,
-      activeSessions: ptyStore.getActiveSessionsList(),
+      // Solo las sesiones propias (o legacy sin dueño): las de otros dispositivos
+      // se descubren via session:list y se adoptan explicitamente
+      activeSessions: ptyStore.getActiveSessionsList(clientId),
       shellType,
       // Solo labels: las rutas de shell/cwd no salen del servidor
       profiles: PROFILES.map(p => p.label),
@@ -274,7 +332,11 @@ io.on('connection', (socket) => {
     }
 
     const result = ptyStore.createSession(socket, clientSessionId, profile);
-    if (result.duplicate) return;
+    if (result.duplicate) {
+      // Idempotente: re-emitir el created cura tabs que perdieron el ack original
+      socket.emit('session:created', { clientSessionId, persistentId: result.persistentId });
+      return;
+    }
     if (result.error) {
       socket.emit('session:error', { clientSessionId, error: result.error });
       return;
@@ -295,10 +357,16 @@ io.on('connection', (socket) => {
     callback(ptyStore.reconnectSessions(socket, persistentIds));
   }));
 
-  // Listar sesiones activas (para cross-device discovery)
+  // Listar sesiones activas, incluidas las de otros dispositivos (mine:false)
   socket.on('session:list', safe('session:list', (callback) => {
     if (!authenticated || typeof callback !== 'function') return;
-    callback(ptyStore.getActiveSessionsList());
+    callback(ptyStore.getActiveSessionsList(clientId, true));
+  }));
+
+  // Adoptar explicitamente una sesion (de otro dispositivo o recuperar una movida)
+  socket.on('session:adopt', safe('session:adopt', (persistentId, callback) => {
+    if (!authenticated || typeof persistentId !== 'string' || typeof callback !== 'function') return;
+    callback(ptyStore.adoptSession(socket, persistentId));
   }));
 
   // Cerrar una sesion (usa persistentId)
@@ -345,13 +413,20 @@ io.on('connection', (socket) => {
   }));
 });
 
-// Log periodico de recursos (journald se encarga de la rotacion)
+// Log periodico de recursos (journald se encarga de la rotacion).
+// La linea [EVT] paralela da la misma serie temporal en JSON parseable.
 const HEALTH_LOG_INTERVAL_MS = 5 * 60 * 1000;
 setInterval(() => {
   const rssMb = Math.round(process.memoryUsage.rss() / 1048576);
   const s = ptyStore.stats();
   const conns = io.engine ? io.engine.clientsCount : 0;
   log.info(`[HEALTH] RSS ${rssMb}MB | PTYs ${s.ptys} | conexiones ${conns}`);
+  const m = metrics.snapshot();
+  metrics.event('health', {
+    rssMb, ptys: s.ptys, paused: s.paused, conns,
+    bytesOut: m.bytesOut, reconnects: m.reconnects, takeovers: m.takeovers,
+    authFail: m.authFail, uptime: Math.round(process.uptime()),
+  });
 }, HEALTH_LOG_INTERVAL_MS).unref();
 
 // === Arrancar servidor ===
@@ -392,6 +467,8 @@ const CRASH_BURST_MAX = 3;
 const CRASH_BURST_WINDOW_MS = 60000;
 let crashTimes = [];
 function recordCrash(kind, err) {
+  metrics.err(kind);
+  metrics.event('crash', { kind, message: err && err.message ? err.message : String(err) });
   log.error(`[ERROR] ${kind}:`, err);
   const now = Date.now();
   crashTimes = crashTimes.filter(t => now - t < CRASH_BURST_WINDOW_MS);

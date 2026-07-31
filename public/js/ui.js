@@ -1,6 +1,7 @@
 import { state, isMobile, active, parseEscapes, setPref,
          RESIZE_DEBOUNCE_DESKTOP_MS, RESIZE_DEBOUNCE_MOBILE_MS, LONG_PRESS_MS } from './state.js';
 import { createSession, switchSession, closeSession, renameTab } from './sessions.js';
+import { flushAllOutputBuffers } from './socket.js';
 let resizeTimer = null;
 
 function doResize() {
@@ -21,6 +22,22 @@ window.addEventListener('resize', debouncedResize);
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', debouncedResize);
 }
+
+// Segundo plano (movil sobre todo): el rAF del output no corre y el heartbeat
+// se congela. Al ocultar: volcar lo pendiente mientras la pagina sigue viva.
+// Al volver: volcar, re-ajustar el terminal y reactivar la conexion.
+document.addEventListener('visibilitychange', () => {
+  flushAllOutputBuffers();
+  if (document.visibilityState !== 'visible') return;
+  debouncedResize();
+  if (state.socket) {
+    if (!state.socket.connected) {
+      if (state.savedToken) state.socket.connect(); // no-op si ya esta conectando
+    } else {
+      state.socket.emit('heartbeat'); // el interval de 30s estuvo congelado
+    }
+  }
+});
 
 const tabsEl = document.getElementById('tabs');
 const buttonsEl = document.getElementById('buttons');

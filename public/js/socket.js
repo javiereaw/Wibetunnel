@@ -1,4 +1,4 @@
-import { state, isMobile, HEARTBEAT_INTERVAL_MS, inputBatch, setPref, saveSessions, loadSavedSessions, findSessionByPersistentId, trackOutput } from './state.js';
+import { state, isMobile, HEARTBEAT_INTERVAL_MS, inputBatch, setPref, getClientId, saveSessions, loadSavedSessions, findSessionByPersistentId, trackOutput } from './state.js';
 import { createSession, adoptSession, switchSession, closeSession, cleanupAllSessions } from './sessions.js';
 import { initShortcuts } from './settings.js';
 
@@ -9,29 +9,69 @@ const MAX_BACKOFF_MS = 30000;
 const AUTO_REAP_MS = 10000; // cerrar tabs 'exited' no activas tras este tiempo
 
 // === Overlay de estado con niveles: info, aviso escalado y error con reintento ===
+// retry: true = accion por defecto (reconectar socket), o una funcion custom
 let retryBtn = null;
-function setStatus(text, { retry = false } = {}) {
+let retryAction = null;
+function setStatus(text, { retry = null } = {}) {
   const el = document.getElementById('status');
   el.textContent = text;
   if (retry) {
+    retryAction = retry === true
+      ? () => { setStatus('Reconectando...'); if (state.socket) state.socket.connect(); }
+      : retry;
     if (!retryBtn) {
       retryBtn = document.createElement('button');
       retryBtn.textContent = 'Reintentar ahora';
       retryBtn.style.cssText = 'display:block;margin:10px auto 0;padding:6px 14px;background:var(--accent);color:var(--bg);border:none;border-radius:5px;cursor:pointer;font-size:13px;';
-      retryBtn.addEventListener('click', () => {
-        setStatus('Reconectando...');
-        if (state.socket) state.socket.connect();
-      });
+      retryBtn.addEventListener('click', () => { if (retryAction) retryAction(); });
     }
     el.appendChild(retryBtn);
   }
   el.style.display = 'block';
 }
-// Restaurar sesiones persistentes: emite session:reconnect, escribe buffer, reajusta terminal
-function doReconnect(pids, statusEl, onRestored) {
-  state.socket.emit('session:reconnect', pids, (restored) => {
+
+// Volver a la pantalla de login con un mensaje visible (token rotado, rate limit):
+// sin esto el error se escribe en un nodo oculto y la app queda congelada en el overlay
+function showLogin(message) {
+  document.getElementById('terminal-container').style.display = 'none';
+  document.getElementById('status').style.display = 'none';
+  document.getElementById('login').style.display = 'flex';
+  document.getElementById('error').textContent = message;
+}
+
+// Restaurar sesiones persistentes: emite session:reconnect, escribe buffer, reajusta terminal.
+// Con timeout de ack y reintentos: un ack perdido no puede dejar el overlay eterno.
+function doReconnect(pids, statusEl, onRestored, attempt = 0) {
+  state.socket.timeout(10000).emit('session:reconnect', pids, (err, restored) => {
+    if (err) {
+      if (state.socket && state.socket.connected && attempt < 2) {
+        doReconnect(pids, statusEl, onRestored, attempt + 1);
+        return;
+      }
+      if (state.socket && state.socket.connected) {
+        setStatus('No se pudieron restaurar las sesiones', {
+          retry: () => { setStatus('Reconectando sesiones...'); doReconnect(pids, statusEl, onRestored); },
+        });
+      }
+      // Si el socket cayo entre medias, el proximo ciclo de reconexion relanza doReconnect
+      return;
+    }
     statusEl.style.display = 'none';
-    if (restored && restored.length > 0) {
+    if (!Array.isArray(restored)) restored = [];
+
+    // Marcar las no restauradas (expiradas en el servidor) en vez de destruir todo
+    const restoredIds = new Set(restored.map(r => r.persistentId));
+    for (const pid of pids) {
+      if (restoredIds.has(pid)) continue;
+      const match = findSessionByPersistentId(pid);
+      if (match) {
+        match.session.term.write('\r\n\x1b[33m[Sesión expirada en el servidor]\x1b[0m\r\n');
+        match.session.persistentId = null;
+        match.session.tabEl.classList.add('exited');
+      }
+    }
+
+    if (restored.length > 0) {
       for (const r of restored) {
         const match = findSessionByPersistentId(r.persistentId);
         if (match) {
@@ -55,8 +95,16 @@ function doReconnect(pids, statusEl, onRestored) {
       }
       if (onRestored) onRestored();
     } else {
-      cleanupAllSessions();
-      createSession();
+      // Nada restaurado: solo arrasar y empezar de cero si no queda ninguna
+      // sesion con vida (ni recuperable via takenPid)
+      let anyAlive = false;
+      state.sessions.forEach(s => { if (s.persistentId || s.takenPid) anyAlive = true; });
+      if (!anyAlive) {
+        setStatus('Sesiones expiradas en el servidor: abriendo una nueva');
+        setTimeout(() => { statusEl.style.display = 'none'; }, 2500);
+        cleanupAllSessions();
+        createSession();
+      }
     }
     saveSessions();
   });
@@ -113,7 +161,7 @@ export function connect() {
   state.socket.on('connect', () => {
     connectErrors = 0;
     reconnectBackoffMs = 1000;
-    state.socket.emit('auth', state.savedToken);
+    state.socket.emit('auth', { token: state.savedToken, clientId: getClientId() });
 
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     heartbeatInterval = setInterval(() => {
@@ -142,8 +190,11 @@ export function connect() {
         const pidsToReconnect = [];
         for (const ss of serverSessions) {
           const savedName = savedMap[ss.persistentId] ? savedMap[ss.persistentId].name : null;
-          adoptSession(ss.persistentId, savedName);
-          pidsToReconnect.push(ss.persistentId);
+          // Solo reclamar lo que realmente se adopto: mas alla de maxSessions
+          // adoptSession devuelve null y reclamarlo dejaria la sesion sin panel
+          if (adoptSession(ss.persistentId, savedName)) {
+            pidsToReconnect.push(ss.persistentId);
+          }
         }
 
         doReconnect(pidsToReconnect, statusEl, () => {
@@ -175,7 +226,9 @@ export function connect() {
   });
 
   state.socket.on('auth_failed', () => {
-    document.getElementById('error').textContent = 'Token incorrecto';
+    // showLogin: si ocurre en caliente (token rotado en el servidor) el usuario
+    // debe ver el login con el error, no un overlay de reconexion eterno
+    showLogin('Token incorrecto');
     // Olvidar el token guardado: evita bucles de auto-conexion fallida + rate limit
     setPref('wibe-token', null);
     const rememberEl = document.getElementById('remember-token');
@@ -185,7 +238,7 @@ export function connect() {
   });
 
   state.socket.on('auth_ratelimited', () => {
-    document.getElementById('error').textContent = 'Demasiados intentos. Espera unos minutos.';
+    showLogin('Demasiados intentos. Espera unos minutos.');
     if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
     state.socket.disconnect();
   });
@@ -215,9 +268,12 @@ export function connect() {
   state.socket.on('session:taken', (persistentId) => {
     const match = findSessionByPersistentId(persistentId);
     if (match) {
-      match.session.term.write('\r\n\x1b[33m[Sesi\u00f3n transferida a otro dispositivo]\x1b[0m\r\n');
+      match.session.term.write('\r\n\x1b[33m[Sesi\u00f3n movida a otro dispositivo \u2014 paleta: "Recuperar sesiones"]\x1b[0m\r\n');
+      // Recordar el pid para poder recuperarla via session:adopt; sin persistentId
+      // la tab no envia input (y se marca visualmente como movida)
+      match.session.takenPid = persistentId;
       match.session.persistentId = null;
-      saveSessions();
+      match.session.tabEl.classList.add('taken');
     }
     cleanOutputBuffer(persistentId);
   });
@@ -233,11 +289,8 @@ export function connect() {
     buf.data += data;
     if (!buf.raf) {
       buf.raf = requestAnimationFrame(() => {
-        const pending = buf.data;
-        buf.data = '';
         buf.raf = null;
-        match.session.term.write(pending);
-        trackOutput(match.id);
+        writeBufferedOutput(id);
       });
     }
   });
@@ -268,9 +321,31 @@ export function connect() {
     statusEl.textContent = 'Reconectando...';
     statusEl.style.display = 'block';
     if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
-    outputBuffers.forEach(buf => { if (buf.raf) cancelAnimationFrame(buf.raf); });
+    // Flush, no descarte: en movil el rAF no corre en background y aqui habia
+    // output acumulado que se perdia en cada desconexion con la pantalla apagada
+    flushAllOutputBuffers();
     outputBuffers.clear();
   });
+}
+
+// Escribir el output pendiente de una sesion (cancela su rAF si estaba armado)
+function writeBufferedOutput(id) {
+  const buf = outputBuffers.get(id);
+  if (!buf) return;
+  if (buf.raf) { cancelAnimationFrame(buf.raf); buf.raf = null; }
+  if (!buf.data) return;
+  const pending = buf.data;
+  buf.data = '';
+  const match = findSessionByPersistentId(id);
+  if (match) {
+    match.session.term.write(pending);
+    trackOutput(match.id);
+  }
+}
+
+// Vaciar todos los buffers pendientes (visibilitychange, disconnect)
+export function flushAllOutputBuffers() {
+  for (const id of [...outputBuffers.keys()]) writeBufferedOutput(id);
 }
 
 export function cleanOutputBuffer(persistentId) {

@@ -75,7 +75,8 @@ export function setupSessionUI(id, displayName) {
   term.onScroll(() => {
     const buf = term.buffer.active;
     const s = state.sessions.get(id);
-    if (s) s.atBottom = buf.viewportY >= buf.baseY;
+    if (!s) return; // evento de scroll entregado tras dispose()
+    s.atBottom = buf.viewportY >= buf.baseY;
     if (state.activeId === id) {
       document.getElementById('btn-bottom').classList.toggle('scrolled-up', !s.atBottom);
     }
@@ -106,7 +107,7 @@ export function setupSessionUI(id, displayName) {
 
   panel.addEventListener('touchstart', () => term.focus());
 
-  state.sessions.set(id, { id, term, fitAddon, searchAddon, webglAddon: null, tabEl: tab, panelEl: panel, name: displayName, persistentId: null, atBottom: true });
+  state.sessions.set(id, { id, term, fitAddon, searchAddon, webglAddon: null, tabEl: tab, panelEl: panel, name: displayName, persistentId: null, takenPid: null, atBottom: true });
   return id;
 }
 
@@ -220,6 +221,7 @@ export function renameTab(tab) {
     span.className = 'tab-name';
     span.textContent = newName;
     input.replaceWith(span);
+    saveSessions();
   };
   input.addEventListener('blur', finish);
   input.addEventListener('keydown', (ev) => {

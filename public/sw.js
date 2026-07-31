@@ -1,6 +1,8 @@
 // Service worker: network-first con fallback a cache para los estaticos.
 // Nunca toca /socket.io, /health ni /fs/ (tiempo real y transferencias).
-const CACHE = 'wibetunnel-v2';
+// __WIBE_BUILD__ lo sustituye el servidor al servir /sw.js (ver server.js):
+// cualquier deploy que toque public/ produce un SW byte-distinto → reinstalacion.
+const CACHE = 'wibetunnel-__WIBE_BUILD__';
 const PRECACHE = [
   '/',
   '/manifest.json',
@@ -29,7 +31,12 @@ const PRECACHE = [
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting())
+    // cache:'no-cache' tambien en el precache: sin esto la instalacion puede
+    // sembrarse desde copias stale impuestas por el proxy (el fix del fetch
+    // handler no cubria este camino)
+    caches.open(CACHE)
+      .then((c) => c.addAll(PRECACHE.map((u) => new Request(u, { cache: 'no-cache' }))))
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -55,7 +62,14 @@ self.addEventListener('fetch', (e) => {
       .then((res) => {
         if (res.ok) {
           const clone = res.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, clone));
+          caches.open(CACHE).then((c) => c.put(e.request, clone)).catch(() => {});
+          return res;
+        }
+        // 5xx (502/1033 del tunel devuelven HTML): mejor la copia cacheada que
+        // un cuerpo de error entregado al parser de modulos ES (app en blanco)
+        if (res.status >= 500) {
+          return caches.match(e.request, { ignoreSearch: url.pathname === '/' })
+            .then((hit) => hit || res);
         }
         return res;
       })

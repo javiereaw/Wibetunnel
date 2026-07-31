@@ -66,6 +66,8 @@
 #buttons {
   display: flex; justify-content: center;
   gap: 8px; padding: 8px 8px;
+  /* safe-area: que la botonera no quede bajo el home indicator de iOS */
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   background: var(--secondary); align-items: center;
   flex-shrink: 0;
   border-bottom: 1px solid var(--btn-border);

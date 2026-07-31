@@ -3,7 +3,7 @@
   --accent: #00d4ff; --btn-bg: #2a2a4a; --btn-border: #444;
   --bar-bg: #0f0f23; --overlay-bg: rgba(0,0,0,0.7);
   --term-bg: #1a1a2e; --term-fg: #e0e0e0;
-  --mono-font: var(--mono-font);
+  --mono-font: Consolas, 'Courier New', monospace;
 }
 [data-theme="light"] {
   --bg: #f0f0f0; --fg: #1a1a2e; --secondary: #dde;
@@ -53,3 +53,4 @@ body {
 }
 #btn-eye:active { opacity: 1; }
 .tab.exited { opacity: 0.3; text-decoration: line-through; }
+.tab.taken { opacity: 0.5; font-style: italic; border-bottom-color: #e0af68; }
