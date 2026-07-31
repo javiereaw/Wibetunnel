@@ -12,13 +12,14 @@ const config = require('./lib/config');
 const { getClientIp, getHttpClientIp, tokenMatches, checkRateLimit, recordFailedAuth, clearAuthAttempts } = require('./lib/auth');
 const metrics = require('./lib/metrics');
 const ptyStore = require('./lib/pty-store');
+const claudeWatch = require('./lib/claude-watch');
 const { listDirectory, resolveJailed } = require('./lib/fs-handler');
 
 const {
   TOKEN, PORT, SHELL, SHORTCUTS, SESSION_TIMEOUT, RATE_MAX, RATE_WINDOW,
   RECONNECT_GRACE, BUFFER_SIZE, MAX_CONNECTIONS, MAX_SESSIONS,
   AUTH_TIMEOUT_MS, SHUTDOWN_GRACE_MS, SSL_CERT, SSL_KEY, ALLOWED_ORIGINS,
-  PROFILES, UPLOAD_MAX,
+  PROFILES, UPLOAD_MAX, CLAUDE_VIEW,
 } = config;
 
 // Validar que el token esté configurado (obligatorio)
@@ -68,6 +69,12 @@ const io = new Server(server, {
   },
 });
 ptyStore.init(io);
+
+// Vista /claude (experimental, pagina aparte — no toca la UI principal): al
+// morir un PTY, desenganchar tambien su watcher de transcript si lo tuviera.
+if (CLAUDE_VIEW) {
+  ptyStore.onSessionExit((persistentId) => claudeWatch.detach(persistentId));
+}
 
 // Security headers
 app.use((req, res, next) => {
@@ -208,6 +215,13 @@ app.get('/sw.js', (req, res) => {
   res.send(swBody);
 });
 
+// Vista /claude: pagina nueva y separada de "/" (la UI de siempre no se toca).
+// El propio archivo tambien es servible como /claude.html via el static de abajo;
+// esta ruta es solo el alias sin extension.
+if (CLAUDE_VIEW) {
+  app.get('/claude', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'claude.html')));
+}
+
 // Servir archivos estáticos (public/) con revalidacion forzada: sin esto el
 // navegador aplica cache heuristica y puede quedarse con JS viejo tras un deploy
 // (el ETag hace que la revalidacion sea un 304 barato)
@@ -240,6 +254,7 @@ io.on('connection', (socket) => {
   let socketLastActivity = Date.now();
   let timeoutChecker = null;
   const ip = getClientIp(socket);
+  const claudeAttached = new Set(); // persistentIds con watcher de /claude activo en ESTE socket
 
   socket.on('error', (err) => {
     log.error(`[ERROR] Socket ${socket.id}:`, err && err.message ? err.message : err);
@@ -405,10 +420,43 @@ io.on('connection', (socket) => {
     callback(await listDirectory(dirPath));
   }));
 
+  // Vista /claude: enganchar/desenganchar el seguimiento del transcript JSONL
+  // de una sesion. Requiere ademas de auth la misma propiedad que reconnect
+  // (mismo clientId, o sesion legacy sin dueño) — leer el chat de Claude Code
+  // es mas sensible que el replay de terminal que ya usa este mismo persistentId.
+  if (CLAUDE_VIEW) {
+    socket.on('claude:attach', safe('claude:attach', (persistentId) => {
+      if (!authenticated || typeof persistentId !== 'string') return;
+      if (!ptyStore.isOwnedBy(persistentId, clientId)) return;
+      const pid = ptyStore.getSessionPid(persistentId);
+      if (!pid) return;
+      claudeAttached.add(persistentId);
+      claudeWatch.attach(persistentId, pid, (event, payload) => {
+        if (socket.connected) socket.emit(event, payload);
+      });
+    }));
+
+    socket.on('claude:detach', safe('claude:detach', (persistentId) => {
+      if (typeof persistentId !== 'string') return;
+      claudeAttached.delete(persistentId);
+      claudeWatch.detach(persistentId);
+    }));
+
+    socket.on('claude:more', safe('claude:more', (persistentId, callback) => {
+      if (!authenticated || typeof persistentId !== 'string' || typeof callback !== 'function') return;
+      if (!claudeAttached.has(persistentId)) { callback({ events: [], hasMore: false }); return; }
+      claudeWatch.loadMore(persistentId, callback);
+    }));
+  }
+
   // Desconexion: grace period en vez de kill inmediato
   socket.on('disconnect', safe('disconnect', () => {
     clearTimeout(authTimer);
     if (timeoutChecker) clearInterval(timeoutChecker);
+    if (CLAUDE_VIEW) {
+      for (const pid of claudeAttached) claudeWatch.detach(pid);
+      claudeAttached.clear();
+    }
     ptyStore.handleDisconnect(socket);
   }));
 });

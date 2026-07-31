@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <!-- Mismas directivas de viewport que index.html: el teclado virtual encoge
+       el layout en vez de taparlo, y viewport-fit habilita safe-area. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>Wibetunnel · Claude</title>
+  <meta name="theme-color" content="#16213e">
+  <link rel="icon" type="image/png" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="/vendor/xterm.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/claude.css">
+</head>
+<body>
+  <!-- Pantalla de login: misma estructura/ids que index.html para heredar el
+       estilo de #login de base.css sin duplicar CSS. Pagina propia, JS propio. -->
+  <div id="login">
+    <h1>Wibetunnel <span class="c-badge">Claude</span></h1>
+    <div class="input-wrap">
+      <input type="password" id="token" placeholder="Token de acceso" autofocus>
+      <button id="btn-eye" type="button" aria-label="Mostrar token">&#x1F441;</button>
+    </div>
+    <button id="btn-connect">Conectar</button>
+    <label id="remember-row" style="display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;margin-top:10px;opacity:.85;cursor:pointer;">
+      <input type="checkbox" id="remember-token"> Recordar token en este dispositivo
+    </label>
+    <div id="error" class="error"></div>
+    <a class="c-back-link" href="/">&larr; Volver al terminal clásico</a>
+  </div>
+
+  <div id="c-app">
+    <div id="c-header">
+      <div id="c-toolbar">
+        <span id="c-title">CLAUDE</span>
+        <div id="c-toolbar-actions">
+          <button id="theme-toggle" title="Cambiar tema" aria-label="Cambiar tema"></button>
+        </div>
+      </div>
+      <div id="c-tabs">
+        <button id="c-tab-new" title="Nueva sesión" aria-label="Nueva sesión">+</button>
+      </div>
+    </div>
+
+    <div id="c-body">
+      <div id="c-chat-view">
+        <div id="c-chat-log">
+          <button id="c-load-more" style="display:none">Cargar más</button>
+        </div>
+        <div id="c-empty-state">
+          <div id="c-empty-icon">✻</div>
+          <div id="c-empty-text">Buscando una sesión de <code>claude</code> en esta shell…</div>
+          <div id="c-empty-hint">Lánzala con <code>claude</code> desde el modo Terminal.</div>
+        </div>
+      </div>
+      <div id="c-term-view">
+        <div id="c-term-panels"></div>
+      </div>
+    </div>
+
+    <div id="c-peek">
+      <div id="c-peek-header">
+        <span id="c-peek-dot"></span>
+        <span id="c-peek-label">En vivo</span>
+        <button id="c-peek-toggle" aria-label="Expandir">&#x25B2;</button>
+      </div>
+      <pre id="c-peek-body"></pre>
+      <div id="c-peek-chips"></div>
+    </div>
+
+    <div id="c-composer">
+      <div id="c-composer-row">
+        <textarea id="c-input" placeholder="Escribe un mensaje para Claude…" rows="1"></textarea>
+        <button id="c-send" aria-label="Enviar">&#x2191;</button>
+      </div>
+      <div id="c-keys">
+        <button data-key="\x1b" title="Escape">Esc</button>
+        <span id="c-key-hint" title="Mayúsculas+Enter en escritorio inserta salto de línea">&#x21e7;&#x23ce; línea</span>
+        <button data-key="\x1b[Z" title="Cambiar modo (Shift+Tab)">&#x21e5;&#x21e5;</button>
+        <button data-key="\x03" title="Cancelar (Ctrl+C)">^C</button>
+        <button id="c-btn-mode" title="Cambiar a vista terminal cruda">Terminal</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="status">Reconectando...</div>
+
+  <script src="/vendor/xterm.js"></script>
+  <script src="/vendor/xterm-addon-fit.js"></script>
+  <script src="/vendor/xterm-addon-web-links.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/js/claude/app.js"></script>
+</body>
+</html>

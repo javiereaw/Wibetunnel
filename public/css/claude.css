@@ -1,0 +1,246 @@
+/* Vista /claude — chat estructurado sobre el mismo terminal real.
+   Reutiliza las variables de tema de base.css (:root / [data-theme="light"]);
+   este archivo no toca ningun selector de index.html. */
+
+.c-badge {
+  font-size: 11px; vertical-align: middle;
+  color: var(--bg); background: var(--accent);
+  padding: 2px 7px; border-radius: 10px; margin-left: 6px;
+}
+.c-back-link {
+  color: var(--accent); font-size: 13px; opacity: .8;
+  text-decoration: none; margin-top: 4px;
+}
+.c-back-link:active { opacity: 1; }
+
+#c-app {
+  display: none; flex-direction: column;
+  height: 100vh; height: 100dvh; width: 100vw;
+}
+#c-header { display: flex; flex-direction: column; flex-shrink: 0; }
+#c-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--bar-bg); padding: 0 6px;
+  border-bottom: 1px solid var(--btn-border);
+}
+#c-title {
+  font-size: 12px; font-weight: bold; color: var(--accent);
+  padding: 0 6px; letter-spacing: 1px;
+}
+#c-toolbar-actions { display: flex; align-items: center; gap: 2px; }
+#c-toolbar-actions button {
+  padding: 8px 10px; font-size: 20px; background: none; border: none;
+  color: var(--fg); cursor: pointer; min-width: 44px; min-height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; touch-action: manipulation;
+}
+#c-toolbar-actions button:active { background: var(--btn-bg); }
+
+#c-tabs {
+  display: flex; align-items: center; background: var(--bg);
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+#c-tabs::-webkit-scrollbar { display: none; }
+.c-tab {
+  display: flex; align-items: center; gap: 6px; padding: 8px 14px;
+  font-size: 13px; font-family: var(--mono-font); color: var(--fg);
+  background: transparent; border: none; border-bottom: 2px solid transparent;
+  cursor: pointer; white-space: nowrap; opacity: 0.5;
+  transition: opacity 0.15s, background 0.15s;
+}
+.c-tab.active { opacity: 1; border-bottom-color: var(--accent); background: var(--secondary); }
+.c-tab .c-tab-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--btn-border); flex-shrink: 0; }
+.c-tab.c-status-attached .c-tab-dot { background: #3fb950; }
+.c-tab.c-status-searching .c-tab-dot { background: #e0af68; }
+.c-tab-close {
+  font-size: 15px; padding: 4px 6px; margin-left: 2px; background: none;
+  border: none; color: var(--fg); cursor: pointer; opacity: 0.4;
+  min-width: 28px; min-height: 28px;
+}
+.c-tab-close:active { opacity: 1; color: #ff4444; }
+#c-tab-new {
+  padding: 8px 14px; font-size: 18px; background: none; border: none;
+  color: var(--accent); cursor: pointer; flex-shrink: 0;
+  min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center;
+}
+
+#c-body { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+#c-chat-view, #c-term-view {
+  position: absolute; inset: 0; display: none;
+}
+#c-app.c-mode-chat #c-chat-view { display: flex; flex-direction: column; }
+#c-app.c-mode-term #c-term-view { display: block; }
+
+#c-chat-log {
+  flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column; gap: 8px;
+}
+#c-load-more {
+  align-self: center; padding: 8px 16px; font-size: 12px;
+  background: var(--btn-bg); color: var(--accent);
+  border: 1px solid var(--btn-border); border-radius: 20px; cursor: pointer;
+}
+#c-empty-state {
+  display: none; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; flex: 1; text-align: center; padding: 20px; color: var(--fg); opacity: .7;
+}
+#c-empty-state.visible { display: flex; }
+#c-empty-icon { font-size: 32px; color: var(--accent); }
+#c-empty-text { font-size: 14px; }
+#c-empty-hint { font-size: 12px; opacity: .7; }
+#c-empty-state code {
+  font-family: var(--mono-font); background: var(--btn-bg);
+  padding: 1px 6px; border-radius: 4px;
+}
+
+/* === Mensajes de texto (usuario / asistente) === */
+.c-msg { display: flex; max-width: 88%; }
+.c-msg-user { align-self: flex-end; }
+.c-msg-assistant { align-self: flex-start; }
+.c-msg.c-sidechain { opacity: .75; }
+.c-bubble {
+  padding: 9px 13px; border-radius: 14px; font-size: 14px; line-height: 1.45;
+  white-space: normal; word-break: break-word;
+}
+.c-msg-user .c-bubble { background: var(--accent); color: var(--bg); border-bottom-right-radius: 4px; }
+.c-msg-assistant .c-bubble { background: var(--secondary); color: var(--fg); border-bottom-left-radius: 4px; }
+.c-bubble p { margin: 0 0 6px; }
+.c-bubble p:last-child { margin-bottom: 0; }
+.c-bubble a { color: inherit; text-decoration: underline; }
+.c-md-inline {
+  font-family: var(--mono-font); font-size: 0.9em;
+  background: rgba(128,128,128,.2); padding: 1px 5px; border-radius: 4px;
+}
+.c-md-code {
+  font-family: var(--mono-font); font-size: 0.85em; background: var(--bar-bg);
+  color: var(--fg); padding: 8px 10px; border-radius: 8px; overflow-x: auto;
+  margin: 6px 0; border: 1px solid var(--btn-border);
+}
+
+/* === Cards plegables: herramientas, thinking, meta === */
+.c-card {
+  align-self: stretch; background: var(--secondary);
+  border: 1px solid var(--btn-border); border-radius: 10px; overflow: hidden;
+  font-size: 13px;
+}
+.c-card-header {
+  display: flex; align-items: center; gap: 6px; padding: 9px 12px;
+  cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.c-card-header:active { background: var(--btn-bg); }
+.c-chevron { color: var(--accent); font-size: 11px; width: 10px; flex-shrink: 0; }
+.c-tool-icon { flex-shrink: 0; }
+.c-tool-label { font-weight: bold; color: var(--fg); flex-shrink: 0; }
+.c-tool-summary {
+  color: var(--fg); opacity: .65; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; flex: 1; font-family: var(--mono-font); font-size: 12px;
+}
+.c-tool-status { flex-shrink: 0; font-size: 12px; }
+.c-card-pending .c-tool-status { animation: c-pulse 1.2s ease-in-out infinite; }
+.c-card-error { border-color: #ff4444; }
+.c-card-error .c-tool-status { color: #ff4444; }
+@keyframes c-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
+.c-card-body {
+  border-top: 1px solid var(--btn-border); padding: 10px 12px;
+  max-height: 60vh; overflow: auto;
+}
+.c-card-input, .c-card-output {
+  font-family: var(--mono-font); font-size: 12px; white-space: pre-wrap;
+  word-break: break-word; margin: 0;
+}
+.c-card-output { margin-top: 8px; opacity: .9; }
+.c-card-output.c-error { color: #ff6666; }
+.c-pending { opacity: .6; font-style: italic; }
+.c-show-all {
+  margin-top: 6px; padding: 4px 10px; font-size: 11px;
+  background: var(--btn-bg); color: var(--accent);
+  border: 1px solid var(--btn-border); border-radius: 6px; cursor: pointer;
+}
+
+.c-diff { font-family: var(--mono-font); font-size: 12px; }
+.c-diff-old, .c-diff-new {
+  white-space: pre-wrap; word-break: break-word; padding: 3px 6px; border-radius: 4px; margin-bottom: 3px;
+}
+.c-diff-old { background: rgba(255,68,68,.12); color: #ff8888; }
+.c-diff-new { background: rgba(63,185,80,.12); color: #7ee787; }
+.c-diff-sign { opacity: .6; margin-right: 6px; }
+
+.c-thinking { opacity: .8; }
+.c-thinking .c-card-header { font-style: italic; }
+.c-thinking-body { font-style: italic; opacity: .85; font-size: 12.5px; }
+
+.c-meta .c-tool-label { opacity: .6; font-weight: normal; }
+
+/* === Tira "en vivo" (spinner/estado real del PTY + prompts de permiso) === */
+#c-peek {
+  flex-shrink: 0; background: var(--bar-bg); border-top: 1px solid var(--btn-border);
+  padding: 6px 10px; font-family: var(--mono-font);
+}
+#c-peek-header { display: flex; align-items: center; gap: 8px; }
+#c-peek-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+  animation: c-pulse 1.4s ease-in-out infinite;
+}
+#c-peek-label { font-size: 11px; opacity: .6; flex: 1; }
+#c-peek-toggle {
+  background: none; border: none; color: var(--fg); opacity: .6;
+  font-size: 11px; cursor: pointer; min-width: 32px; min-height: 32px;
+}
+#c-peek-body {
+  display: none; font-size: 11.5px; line-height: 1.5; opacity: .8;
+  max-height: 9.5em; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+  margin: 4px 0 0;
+}
+#c-peek.expanded #c-peek-body { display: block; }
+#c-peek.expanded #c-peek-toggle { transform: rotate(180deg); }
+#c-peek.has-prompt { background: color-mix(in srgb, var(--accent) 12%, var(--bar-bg)); }
+#c-peek-chips { display: none; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+#c-peek.has-prompt #c-peek-chips { display: flex; }
+#c-peek-chips button {
+  padding: 7px 12px; font-size: 12px; background: var(--accent); color: var(--bg);
+  border: none; border-radius: 14px; cursor: pointer; font-weight: bold;
+  min-height: 36px;
+}
+#c-peek-chips button:active { opacity: .8; }
+
+/* === Composer === */
+#c-composer {
+  flex-shrink: 0; background: var(--secondary); border-top: 1px solid var(--btn-border);
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+}
+#c-composer-row { display: flex; align-items: flex-end; gap: 8px; }
+#c-input {
+  flex: 1; resize: none; max-height: 7.5em; min-height: 40px;
+  padding: 10px 12px; font-size: 15px; font-family: var(--mono-font);
+  background: var(--bg); color: var(--fg); border: 1px solid var(--btn-border);
+  border-radius: 12px; outline: none; line-height: 1.35;
+}
+#c-input:focus { border-color: var(--accent); }
+#c-send {
+  flex-shrink: 0; width: 44px; height: 44px; border-radius: 50%;
+  background: var(--accent); color: var(--bg); border: none; font-size: 18px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  touch-action: manipulation;
+}
+#c-send:active { opacity: .8; }
+#c-send:disabled { opacity: .35; }
+#c-keys {
+  display: flex; align-items: center; gap: 6px; margin-top: 6px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+#c-keys::-webkit-scrollbar { display: none; }
+#c-keys button {
+  flex-shrink: 0; min-height: 36px; padding: 6px 12px; font-size: 12.5px;
+  font-family: var(--mono-font); background: var(--btn-bg); color: var(--fg);
+  border: 1px solid var(--btn-border); border-radius: 8px; cursor: pointer;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+#c-keys button:active { background: var(--accent); color: var(--bg); }
+#c-key-hint { flex-shrink: 0; font-size: 11px; opacity: .45; padding: 0 4px; white-space: nowrap; }
+
+/* === Vista terminal cruda (escape hatch de fidelidad total) === */
+#c-term-panels { position: relative; width: 100%; height: 100%; }
+.c-term-panel { position: absolute; inset: 0; display: none; }
+.c-term-panel.active { display: block; }
