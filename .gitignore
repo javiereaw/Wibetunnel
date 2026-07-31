@@ -1,6 +1,8 @@
 node_modules/
 .env
+reports/
 .agent/
 start.bat
 .claude/
 CLAUDE.md
+wibetunnel.apk
