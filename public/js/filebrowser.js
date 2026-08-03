@@ -1,5 +1,6 @@
 import { state, active, isMobile } from './state.js';
 import { showToast } from './ui.js';
+import { quotePathForShell, buildCdCmd } from './shell-quote.js';
 
 const fbEl = document.getElementById('filebrowser');
 const fbPathEl = document.getElementById('fb-path');
@@ -96,7 +97,7 @@ export function openFileBrowser(dirPath) {
         selBtn.addEventListener('click', () => {
           const as = active();
           if (state.socket && state.socket.connected && as && as.persistentId) {
-            state.socket.emit('input', { id: as.persistentId, data: buildCdCmd(fullPath) });
+            state.socket.emit('input', { id: as.persistentId, data: buildCdCmd(fullPath, state.shellType) });
           }
           closeFileBrowser();
         });
@@ -118,7 +119,7 @@ export function openFileBrowser(dirPath) {
         li.addEventListener('click', () => {
           const as = active();
           if (state.socket && state.socket.connected && as && as.persistentId) {
-            state.socket.emit('input', { id: as.persistentId, data: quotePathForShell(fullPath) });
+            state.socket.emit('input', { id: as.persistentId, data: quotePathForShell(fullPath, state.shellType) });
           }
           closeFileBrowser();
         });
@@ -134,17 +135,6 @@ export function closeFileBrowser() {
   fbEl.style.display = 'none';
   const s = active();
   if (s && !isMobile) s.term.focus();
-}
-
-function quotePathForShell(p) {
-  if (state.shellType === 'powershell') {
-    return "'" + p.replace(/'/g, "''") + "'";
-  }
-  return "'" + p.replace(/'/g, "'\\''") + "'";
-}
-
-function buildCdCmd(p) {
-  return 'cd ' + quotePathForShell(p) + '\r';
 }
 
 fbEl.addEventListener('click', (e) => { if (e.target === fbEl) closeFileBrowser(); });

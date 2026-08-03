@@ -87,9 +87,27 @@ export function reconnectSessions(persistentIds, cb) {
   });
 }
 
-export function createSession(clientSessionId, profileLabel) {
+// cwd (opcional) es la carpeta elegida en el explorador; el servidor la valida
+// contra el jail y falla en cerrado si no existe — nunca cae al CWD por defecto.
+export function createSession(clientSessionId, profileLabel, cwd) {
   if (!state.socket || !state.socket.connected) return;
-  state.socket.emit('session:create', profileLabel ? { id: clientSessionId, profile: profileLabel } : clientSessionId);
+  if (!profileLabel && !cwd) { state.socket.emit('session:create', clientSessionId); return; }
+  const payload = { id: clientSessionId };
+  if (profileLabel) payload.profile = profileLabel;
+  if (cwd) payload.cwd = cwd;
+  state.socket.emit('session:create', payload);
+}
+
+export function listDir(dirPath, cb) {
+  if (!state.socket || !state.socket.connected) { cb({ path: '', items: [], error: 'sin conexión' }); return; }
+  state.socket.emit('fs:list', dirPath || '', cb);
+}
+
+// Comando completo (p.ej. un `cd`) SIN batching: no debe intercalarse con las
+// pulsaciones sueltas que el usuario esté enviando por otro camino.
+export function sendCommand(persistentId, text) {
+  if (!state.socket || !state.socket.connected || !persistentId || !text) return;
+  state.socket.emit('input', { id: persistentId, data: text });
 }
 
 export function killSession(persistentId) {

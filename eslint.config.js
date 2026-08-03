@@ -21,6 +21,13 @@ module.exports = [
     rules: { ...js.configs.recommended.rules, ...relaxed },
   },
   {
+    // Tests E2E: CommonJS sobre Node, pero con closures que Playwright evalua
+    // DENTRO del navegador (page.evaluate / waitForFunction), asi que ahi
+    // document y window son legitimos.
+    files: ['tests/e2e/**/*.js'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
+  {
     // Frontend: ES modules en navegador + globals de los vendor UMD
     files: ['public/js/**/*.js'],
     ...js.configs.recommended,

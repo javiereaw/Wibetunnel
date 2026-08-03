@@ -34,7 +34,10 @@ function detectPrompt(lines) {
   return options.length >= 2 ? options : null;
 }
 
-export function initPeek(onChip) {
+let onPromptChange = null;
+
+export function initPeek(onChip, onPrompt) {
+  onPromptChange = onPrompt || null;
   peekToggle.addEventListener('click', () => peekEl.classList.toggle('expanded'));
   peekChips.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-send]');
@@ -51,11 +54,13 @@ export function updatePeek(term) {
 
   const options = detectPrompt(lines);
   if (!options) {
+    if (lastSignature !== null && onPromptChange) onPromptChange(false);
     lastSignature = null;
     peekEl.classList.remove('has-prompt');
     return;
   }
   peekEl.classList.add('has-prompt', 'expanded');
+  if (onPromptChange) onPromptChange(true);
   const signature = options.map((o) => o.num).join(',');
   if (signature === lastSignature) return; // mismos chips ya pintados
   lastSignature = signature;
@@ -73,6 +78,7 @@ export function updatePeek(term) {
 }
 
 export function resetPeek() {
+  if (lastSignature !== null && onPromptChange) onPromptChange(false);
   lastSignature = null;
   peekBody.textContent = '';
   peekChips.innerHTML = '';

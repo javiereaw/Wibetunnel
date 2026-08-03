@@ -9,17 +9,18 @@ const path = require('path');
 const fs = require('fs');
 
 const config = require('./lib/config');
-const { getClientIp, getHttpClientIp, tokenMatches, checkRateLimit, recordFailedAuth, clearAuthAttempts } = require('./lib/auth');
+const { getClientIp, tokenMatches, checkRateLimit, recordFailedAuth, clearAuthAttempts, httpAuthed } = require('./lib/auth');
 const metrics = require('./lib/metrics');
 const ptyStore = require('./lib/pty-store');
 const claudeWatch = require('./lib/claude-watch');
 const { listDirectory, resolveJailed } = require('./lib/fs-handler');
+const { mountFsRoutes } = require('./lib/fs-routes');
 
 const {
   TOKEN, PORT, SHELL, SHORTCUTS, SESSION_TIMEOUT, RATE_MAX, RATE_WINDOW,
   RECONNECT_GRACE, BUFFER_SIZE, MAX_CONNECTIONS, MAX_SESSIONS,
   AUTH_TIMEOUT_MS, SHUTDOWN_GRACE_MS, SSL_CERT, SSL_KEY, ALLOWED_ORIGINS,
-  PROFILES, UPLOAD_MAX, CLAUDE_VIEW,
+  PROFILES, CLAUDE_VIEW,
 } = config;
 
 // Validar que el token esté configurado (obligatorio)
@@ -96,27 +97,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Auth HTTP compartida: Authorization: Bearer <token>, con el mismo rate
-// limiter que el auth de socket (antes los endpoints HTTP permitian brute-force)
-function httpAuthed(req, res) {
-  const ip = getHttpClientIp(req);
-  if (!checkRateLimit(ip)) {
-    res.status(429).json({ error: 'too many attempts' });
-    return false;
-  }
-  const auth = req.headers.authorization || '';
-  const candidate = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (tokenMatches(candidate)) {
-    clearAuthAttempts(ip);
-    return true;
-  }
-  // Solo cuenta como intento si se presento un token: los probes sin header
-  // (401 esperado) no deben poder bloquear al usuario real
-  if (candidate) recordFailedAuth(ip);
-  res.status(401).json({ error: 'unauthorized' });
-  return false;
-}
-
 // Liveness sin auth: solo "ok", ningun dato mas (probes, smoke, uptime checkers)
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 
@@ -135,72 +115,8 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Descarga de archivos (dentro del jail de CWD)
-app.get('/fs/download', async (req, res) => {
-  try {
-    if (!httpAuthed(req, res)) return;
-    const r = await resolveJailed(String(req.query.path || ''));
-    if (r.error) return res.status(r.error === 'denied' ? 403 : 404).json({ error: r.error });
-    const st = await fs.promises.stat(r.path);
-    if (!st.isFile()) return res.status(400).json({ error: 'no es un archivo' });
-    const name = path.basename(r.path);
-    metrics.inc('downloads');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
-    res.sendFile(r.path);
-  } catch (err) {
-    log.error('[FS] download:', err.message);
-    if (!res.headersSent) res.status(500).json({ error: 'error interno' });
-  }
-});
-
-// Subida de archivos (streaming a disco, con limite de tamaño y jail)
-app.post('/fs/upload', async (req, res) => {
-  try {
-    if (!httpAuthed(req, res)) return;
-    const name = path.basename(String(req.query.name || ''));
-    if (!name || name === '.' || name === '..') return res.status(400).json({ error: 'nombre invalido' });
-    const r = await resolveJailed(String(req.query.dir || ''));
-    if (r.error) return res.status(r.error === 'denied' ? 403 : 404).json({ error: r.error });
-    const st = await fs.promises.stat(r.path);
-    if (!st.isDirectory()) return res.status(400).json({ error: 'destino no es un directorio' });
-
-    const dest = path.join(r.path, name);
-    // No escribir sobre symlinks preexistentes: un enlace plantado dentro del
-    // jail permitiria escribir fuera (p.ej. ~/.ssh/authorized_keys)
-    const lst = await fs.promises.lstat(dest).catch(() => null);
-    if (lst && (lst.isSymbolicLink() || !lst.isFile())) {
-      return res.status(400).json({ error: 'destino invalido' });
-    }
-    const out = fs.createWriteStream(dest);
-    let bytes = 0;
-    let aborted = false;
-    req.on('data', (chunk) => {
-      bytes += chunk.length;
-      if (bytes > UPLOAD_MAX && !aborted) {
-        aborted = true;
-        out.destroy();
-        fs.promises.unlink(dest).catch(() => {});
-        res.status(413).json({ error: 'archivo demasiado grande' });
-        req.destroy();
-      }
-    });
-    req.pipe(out);
-    out.on('finish', () => {
-      if (aborted) return;
-      metrics.inc('uploads');
-      log.info(`[FS] subido ${dest} (${bytes} bytes)`);
-      res.json({ ok: true, name, bytes });
-    });
-    out.on('error', (err) => {
-      if (aborted) return;
-      log.error('[FS] upload:', err.message);
-      if (!res.headersSent) res.status(500).json({ error: 'no se pudo guardar' });
-    });
-  } catch (err) {
-    log.error('[FS] upload:', err.message);
-    if (!res.headersSent) res.status(500).json({ error: 'error interno' });
-  }
-});
+// Rutas /fs/* (download, upload, leer/guardar texto) — ver lib/fs-routes.js
+mountFsRoutes(app);
 
 // /sw.js dinamico (ANTES del static, o ganaria el fichero en disco): sustituye
 // __WIBE_BUILD__ por el sello de build — cada deploy que toca public/ produce
@@ -325,14 +241,16 @@ io.on('connection', (socket) => {
     }
   }));
 
-  // Crear nueva sesion PTY. Acepta string (back-compat) o { id, profile }
-  socket.on('session:create', safe('session:create', (payload) => {
+  // Crear nueva sesion PTY. Acepta string (back-compat) o { id, profile, cwd }
+  socket.on('session:create', safe('session:create', async (payload) => {
     if (!authenticated) return;
     let clientSessionId = payload;
     let profileLabel = null;
+    let wantedCwd = null;
     if (payload && typeof payload === 'object') {
       clientSessionId = payload.id;
       profileLabel = payload.profile;
+      wantedCwd = payload.cwd;
     }
     if (typeof clientSessionId !== 'string') return;
 
@@ -346,7 +264,43 @@ io.on('connection', (socket) => {
       }
     }
 
-    const result = ptyStore.createSession(socket, clientSessionId, profile);
+    // Carpeta de arranque elegida por el cliente. Aceptarla NO amplia lo que el
+    // cliente ya puede hacer: fs:list le devuelve rutas absolutas del jail y el
+    // explorador ya las reenvia como `cd`. Lo que sigue sin salir del servidor
+    // son las rutas de los PERFILES, que pueden apuntar FUERA del jail.
+    let cwd = null;
+    if (typeof wantedCwd === 'string' && wantedCwd) {
+      if (wantedCwd.length > 4096) {
+        socket.emit('session:error', { clientSessionId, error: 'Ruta invalida' });
+        return;
+      }
+      const r = await resolveJailed(wantedCwd);
+      if (r.error) {
+        socket.emit('session:error', {
+          clientSessionId,
+          error: r.error === 'denied' ? 'Carpeta fuera del directorio permitido' : 'Carpeta no encontrada',
+        });
+        return;
+      }
+      const st = await fs.promises.stat(r.path).catch(() => null);
+      if (!st || !st.isDirectory()) {
+        socket.emit('session:error', { clientSessionId, error: 'La ruta no es una carpeta' });
+        return;
+      }
+      cwd = r.path;
+    }
+
+    // Perfil efectivo: el cwd del cliente gana al del perfil porque siempre es
+    // un ESTRECHAMIENTO (esta garantizado dentro del jail; el del perfil no).
+    // Si falla, se emite error y no se crea la sesion: caer al CWD por defecto
+    // en silencio arrancaria Claude en el repositorio equivocado.
+    const effective = (profile || cwd) ? {
+      label: profile && profile.label,
+      shell: profile && profile.shell,
+      cwd: cwd || (profile && profile.cwd) || null,
+    } : null;
+
+    const result = ptyStore.createSession(socket, clientSessionId, effective);
     if (result.duplicate) {
       // Idempotente: re-emitir el created cura tabs que perdieron el ack original
       socket.emit('session:created', { clientSessionId, persistentId: result.persistentId });

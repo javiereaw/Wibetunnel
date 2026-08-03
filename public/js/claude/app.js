@@ -3,31 +3,34 @@
 // (estan acoplados al DOM de "/"); solo reutiliza los helpers genericos de state.js
 // y theme.js, que no asumen ninguna estructura de pagina concreta.
 import {
-  state, getPref, isMobile, parseEscapes, inputBatch,
+  state, getPref, setPref, isMobile, parseEscapes, inputBatch,
   RESIZE_DEBOUNCE_DESKTOP_MS, RESIZE_DEBOUNCE_MOBILE_MS,
   findSessionByPersistentId, active, trackOutput,
 } from '../state.js';
 import { initTheme } from '../theme.js';
 import * as net from './net.js';
 import { createTranscript, applyEvents, prependEvents } from './stream.js';
-import { appendItems, updateItems, prependItems, clearChat } from './render.js';
+import {
+  initTabs, setupSession, switchSession, createNewSession, disposeSession,
+  renderTabStatus, doResize,
+} from './tabs.js';
+import {
+  appendItems, updateItems, prependItems, clearChat, initRender,
+  nodeFor, openCard, setNoiseHidden,
+} from './render/index.js';
+import { initChrome, renderChrome } from './chrome.js';
 import { initPeek, updatePeek, resetPeek } from './peek.js';
+import { initStatus, noteOutput, syncFromTranscript, resetStatus, setState } from './status.js';
+import { initFiles, openFiles } from './files.js';
+import { initEditor, openEditor } from './editor.js';
+import { quotePathForShell, buildCdCmd } from '../shell-quote.js';
 
-const tabsEl = document.getElementById('c-tabs');
-const termPanelsEl = document.getElementById('c-term-panels');
 const appEl = document.getElementById('c-app');
 const emptyStateEl = document.getElementById('c-empty-state');
 const loadMoreBtn = document.getElementById('c-load-more');
 const statusEl = document.getElementById('status');
 
 let mode = 'chat'; // 'chat' | 'term'
-
-function el(tag, cls, text) {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;
-  return e;
-}
 
 function setStatus(text) { statusEl.textContent = text; statusEl.style.display = 'block'; }
 function hideStatus() { statusEl.style.display = 'none'; }
@@ -39,116 +42,17 @@ function showLogin(message) {
   document.getElementById('error').textContent = message || '';
 }
 
-// === Sesiones (tabs + terminal xterm oculto detras del chat) ===
-
-function renderTabStatus(s) {
-  s.tabEl.classList.remove('c-status-attached', 'c-status-searching');
-  if (s.claudeStatus === 'attached') s.tabEl.classList.add('c-status-attached');
-  else if (s.claudeStatus === 'searching') s.tabEl.classList.add('c-status-searching');
-}
-
-function doResize(s) {
-  if (!s) return;
-  s.fitAddon.fit();
-  net.resize(s.persistentId, s.term.cols, s.term.rows);
-}
-
-function setupSession(id, name) {
-  const tab = el('button', 'c-tab');
-  tab.dataset.id = id;
-  const close = el('span', 'c-tab-close', '×');
-  close.dataset.id = id;
-  tab.append(el('span', 'c-tab-dot'), el('span', 'c-tab-name', name), close);
-  tabsEl.insertBefore(tab, document.getElementById('c-tab-new'));
-
-  const panel = el('div', 'c-term-panel');
-  panel.id = 'c-term-panel-' + id;
-  termPanelsEl.appendChild(panel);
-
-  const cs = getComputedStyle(document.documentElement);
-  const term = new Terminal({
-    fontSize: state.currentFontSize || 14,
-    fontFamily: getPref('wibe-fontfamily', "'Courier New', monospace"),
-    theme: {
-      background: cs.getPropertyValue('--term-bg').trim(),
-      foreground: cs.getPropertyValue('--term-fg').trim(),
-      cursor: cs.getPropertyValue('--accent').trim(),
-    },
-    cursorBlink: !isMobile,
-    scrollback: isMobile ? 1000 : 5000,
-    fastScrollModifier: 'alt',
-    smoothScrollDuration: 0,
-  });
-  const fitAddon = new FitAddon.FitAddon();
-  term.loadAddon(fitAddon);
-  try { term.loadAddon(new WebLinksAddon.WebLinksAddon()); } catch (_) { /* addon opcional */ }
-  term.open(panel);
-  term.onData((data) => {
-    const s = state.sessions.get(id);
-    if (s && s.persistentId) net.sendKey(s.persistentId, data);
-  });
-  panel.addEventListener('touchstart', () => term.focus());
-
-  state.sessions.set(id, {
-    id, term, fitAddon, tabEl: tab, panelEl: panel, name,
-    persistentId: null, takenPid: null,
-    transcript: createTranscript(), claudeStatus: 'idle', claudeHasMore: false,
-  });
-}
-
-function switchSession(id) {
-  if (!state.sessions.has(id)) return;
-  state.activeId = id;
-  tabsEl.querySelectorAll('.c-tab').forEach((t) => t.classList.toggle('active', t.dataset.id === id));
-  state.sessions.forEach((s, sid) => s.panelEl.classList.toggle('active', sid === id));
-
-  const s = active();
+// Al cambiar de tab: repintar el chat con el transcript de esa sesion.
+function onSwitchSession(s) {
   clearChat();
   loadMoreBtn.style.display = s.claudeHasMore ? 'block' : 'none';
   emptyStateEl.classList.toggle('visible', s.transcript.items.length === 0);
   appendItems(s.transcript.items);
   resetPeek();
+  resetStatus();
   updatePeek(s.term);
-
-  requestAnimationFrame(() => {
-    if (state.activeId !== id) return;
-    doResize(s);
-    if (!isMobile && mode === 'term') s.term.focus();
-  });
-}
-
-function releaseSessionResources(s) {
-  if (!s.persistentId) return;
-  net.detachClaude(s.persistentId);
-  const batch = inputBatch.get(s.persistentId);
-  if (batch && batch.timer) clearTimeout(batch.timer);
-  inputBatch.delete(s.persistentId);
-}
-
-function createNewSession() {
-  if (!state.socket || !state.socket.connected) return;
-  if (state.sessions.size >= state.maxSessions) {
-    setStatus(`Máximo de ${state.maxSessions} sesiones`);
-    setTimeout(hideStatus, 2000);
-    return;
-  }
-  const id = 'cses-' + (++state.sessionCounter);
-  setupSession(id, 'Shell ' + state.sessionCounter);
-  net.createSession(id);
-  switchSession(id);
-}
-
-function closeSession(id) {
-  const s = state.sessions.get(id);
-  if (!s) return;
-  if (s.persistentId) net.killSession(s.persistentId);
-  releaseSessionResources(s);
-  s.term.dispose();
-  s.tabEl.remove();
-  s.panelEl.remove();
-  state.sessions.delete(id);
-  if (state.sessions.size > 0) switchSession([...state.sessions.keys()].pop());
-  else createNewSession();
+  syncFromTranscript(s.transcript);
+  renderChrome(s.transcript);
 }
 
 // === Handlers de red ===
@@ -164,6 +68,10 @@ function handleAuthSuccess(data) {
 
   const serverSessions = (data && data.activeSessions) || [];
   if (data && data.maxSessions) state.maxSessions = data.maxSessions;
+  // Sin esto el citado de rutas seria POSIX contra un servidor PowerShell, que
+  // es el default del proyecto: socket.js lo guarda para "/" pero esta pagina
+  // tiene su propia capa de red y nunca lo estaba leyendo.
+  state.shellType = (data && data.shellType) || 'posix';
 
   if (!state.initialized) {
     if (serverSessions.length > 0) {
@@ -222,6 +130,19 @@ function handleSessionCreated(payload) {
   if (state.activeId === payload.clientSessionId) doResize(s);
 }
 
+// La creacion falla en cerrado (carpeta inexistente, fuera del jail...): se
+// retira la tab fantasma y se avisa, en vez de dejar una pestana muerta.
+function handleSessionError(payload) {
+  if (!payload) return;
+  const s = payload.clientSessionId && state.sessions.get(payload.clientSessionId);
+  if (s && !s.persistentId) {
+    disposeSession(payload.clientSessionId, s);
+    if (state.sessions.size) switchSession([...state.sessions.keys()].pop());
+  }
+  setStatus(payload.error || 'No se pudo crear la sesión');
+  setTimeout(hideStatus, 3000);
+}
+
 function handleSessionExit(persistentId) {
   const match = findSessionByPersistentId(persistentId);
   if (match) {
@@ -247,17 +168,31 @@ function handleOutput(persistentId, data) {
   if (!match) return;
   match.session.term.write(data);
   trackOutput(match.id);
-  if (match.id === state.activeId) updatePeek(match.session.term);
+  if (match.id !== state.activeId) return;
+  updatePeek(match.session.term);
+  noteOutput();
 }
 
 function handleClaudeState(payload) {
   if (!payload) return;
   const match = findSessionByPersistentId(payload.id);
   if (!match) return;
-  match.session.claudeStatus = payload.status;
-  renderTabStatus(match.session);
+  const s = match.session;
+  s.claudeStatus = payload.status;
+  // reset: detras viene un replay completo desde cero (reconexion de socket, o
+  // `claude` relanzado en la misma shell). Sin vaciar antes, el historial se
+  // apila sobre si mismo y cada mensaje de texto sale duplicado.
+  if (payload.reset) {
+    s.transcript = createTranscript();
+    s.claudeHasMore = false;
+    if (match.id === state.activeId) {
+      clearChat();
+      loadMoreBtn.style.display = 'none';
+    }
+  }
+  renderTabStatus(s);
   if (match.id === state.activeId) {
-    emptyStateEl.classList.toggle('visible', match.session.transcript.items.length === 0);
+    emptyStateEl.classList.toggle('visible', s.transcript.items.length === 0);
   }
 }
 
@@ -273,6 +208,8 @@ function handleClaudeEvents(payload) {
     emptyStateEl.classList.remove('visible');
     appendItems(added);
     updateItems(updated);
+    syncFromTranscript(s.transcript);
+    renderChrome(s.transcript);
   }
 }
 
@@ -284,6 +221,7 @@ function connectFlow() {
     onAuthRatelimited: () => showLogin('Demasiados intentos. Espera unos minutos.'),
     onSessionTimeout: () => setStatus('Sesión expirada, reconectando...'),
     onSessionCreated: handleSessionCreated,
+    onSessionError: handleSessionError,
     onSessionExit: handleSessionExit,
     onSessionTaken: handleSessionTaken,
     onOutput: handleOutput,
@@ -319,13 +257,42 @@ if (saved) {
 
 // === Tabs ===
 
-tabsEl.addEventListener('click', (e) => {
-  const closeBtn = e.target.closest('.c-tab-close');
-  if (closeBtn) { closeSession(closeBtn.dataset.id); return; }
-  const tab = e.target.closest('.c-tab');
-  if (tab) switchSession(tab.dataset.id);
+initTabs({
+  onSwitch: onSwitchSession,
+  getMode: () => mode,
+  onLimit: (max) => { setStatus(`Máximo de ${max} sesiones`); setTimeout(hideStatus, 2000); },
 });
-document.getElementById('c-tab-new').addEventListener('click', createNewSession);
+// El "+" abre directamente el selector de carpeta: dos taps para crear una
+// sesion donde quieras, dos para la de siempre ("Carpeta por defecto").
+document.getElementById('c-tab-new').addEventListener('click', () => {
+  openFiles({ mode: 'pick', startPath: getPref('wibe-claude-lastcwd', '') || '' });
+});
+
+initFiles({
+  hasSession: () => { const s = active(); return !!(s && s.persistentId); },
+  onCd: (fullPath) => {
+    const s = active();
+    if (!s || !s.persistentId) return;
+    net.sendCommand(s.persistentId, buildCdCmd(fullPath, state.shellType));
+    // Un salto corto al terminal para que se vea el prompt nuevo: el chat no
+    // refleja un `cd` hasta que Claude vuelva a escribir en el transcript.
+    setMode('term');
+    setTimeout(() => setMode('chat'), 900);
+  },
+  onPickCwd: (fullPath) => {
+    if (fullPath) setPref('wibe-claude-lastcwd', fullPath);
+    createNewSession(fullPath || null);
+  },
+  onOpenFile: (fullPath, name) => openEditor(fullPath, name),
+  onInsertPath: (fullPath) => {
+    const quoted = quotePathForShell(fullPath, state.shellType);
+    const at = inputEl.selectionStart != null ? inputEl.selectionStart : inputEl.value.length;
+    inputEl.value = inputEl.value.slice(0, at) + quoted + inputEl.value.slice(at);
+    inputEl.focus();
+    inputEl.setSelectionRange(at + quoted.length, at + quoted.length);
+  },
+});
+initEditor();
 
 // === Conmutador Chat / Terminal ===
 
@@ -383,9 +350,23 @@ loadMoreBtn.addEventListener('click', () => {
   });
 });
 
-initPeek((data) => {
-  const s = active();
-  if (s && s.persistentId) net.sendKey(s.persistentId, data);
+initPeek(
+  (data) => {
+    const s = active();
+    if (s && s.persistentId) net.sendKey(s.persistentId, data);
+  },
+  // El prompt de permiso manda sobre cualquier otro estado: es lo unico que
+  // deja a Claude parado esperandote.
+  (waiting) => setState(waiting ? 'permission' : 'idle'),
+);
+initStatus();
+// Una referencia a fichero en la prosa (ruta.js:123) abre el editor.
+initRender({ onOpenRef: (p) => openEditor(p, p.split(/[/\\]/).pop()) });
+initChrome({
+  getItems: () => { const s = active(); return s ? s.transcript.items : []; },
+  nodeFor,
+  openCard,
+  setNoiseHidden,
 });
 
 // === Resize / visibilidad ===

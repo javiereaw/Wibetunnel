@@ -12,6 +12,9 @@
   <link rel="stylesheet" href="/vendor/xterm.css">
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/claude.css">
+  <link rel="stylesheet" href="/css/claude-chat.css">
+  <link rel="stylesheet" href="/css/claude-tools.css">
+  <link rel="stylesheet" href="/css/claude-files.css">
 </head>
 <body>
   <!-- Pantalla de login: misma estructura/ids que index.html para heredar el
@@ -32,11 +35,31 @@
 
   <div id="c-app">
     <div id="c-header">
+      <!-- Reparto de espacio fijo: a 360px caben ~5 botones de 44px mas el
+           titulo. Izquierda: explorador de carpetas. Derecha: buscar y menu.
+           Cualquier accion nueva (tema, ruido, ajustes) va DENTRO del menu. -->
       <div id="c-toolbar">
-        <span id="c-title">CLAUDE</span>
-        <div id="c-toolbar-actions">
-          <button id="theme-toggle" title="Cambiar tema" aria-label="Cambiar tema"></button>
+        <button id="c-btn-files" title="Carpetas" aria-label="Carpetas">&#x2630;</button>
+        <span id="c-title">Claude</span>
+        <button id="c-btn-search" title="Buscar en el chat" aria-label="Buscar">&#x1F50D;</button>
+        <button id="c-btn-menu" title="Menú" aria-label="Menú">&#x22EE;</button>
+        <div id="c-menu">
+          <button id="c-menu-noise">Ocultar eventos de sistema</button>
+          <button id="c-menu-theme">Cambiar tema</button>
+          <a href="/">Terminal clásico</a>
         </div>
+        <!-- El toggle real de tema vive aquí oculto: theme.js lo necesita por id
+             y el menú lo dispara, para no gastar un hueco del toolbar. -->
+        <button id="theme-toggle" hidden aria-hidden="true" tabindex="-1"></button>
+      </div>
+      <div id="c-ctx"></div>
+      <div id="c-search">
+        <input id="c-search-input" type="search" placeholder="Buscar en la conversación…"
+               autocapitalize="off" autocorrect="off" spellcheck="false">
+        <span id="c-search-count"></span>
+        <button id="c-search-prev" aria-label="Anterior">&#x2039;</button>
+        <button id="c-search-next" aria-label="Siguiente">&#x203A;</button>
+        <button id="c-search-close" aria-label="Cerrar búsqueda">&times;</button>
       </div>
       <div id="c-tabs">
         <button id="c-tab-new" title="Nueva sesión" aria-label="Nueva sesión">+</button>
@@ -53,6 +76,9 @@
           <div id="c-empty-text">Buscando una sesión de <code>claude</code> en esta shell…</div>
           <div id="c-empty-hint">Lánzala con <code>claude</code> desde el modo Terminal.</div>
         </div>
+        <button id="c-jump" aria-label="Ir al final">
+          <span>&#x2193;</span><span class="c-jump-count">0</span>
+        </button>
       </div>
       <div id="c-term-view">
         <div id="c-term-panels"></div>
@@ -63,6 +89,7 @@
       <div id="c-peek-header">
         <span id="c-peek-dot"></span>
         <span id="c-peek-label">En vivo</span>
+        <span id="c-peek-elapsed"></span>
         <button id="c-peek-toggle" aria-label="Expandir">&#x25B2;</button>
       </div>
       <pre id="c-peek-body"></pre>
@@ -82,6 +109,44 @@
         <button id="c-btn-mode" title="Cambiar a vista terminal cruda">Terminal</button>
       </div>
     </div>
+  </div>
+
+  <!-- Explorador de carpetas. En modo "pick" (crear sesión en una carpeta) se
+       muestran los botones de confirmación; en modo "browse" quedan ocultos. -->
+  <div id="c-files">
+    <div class="cf-panel">
+      <div class="cf-head">
+        <button id="cf-up" title="Subir" aria-label="Subir">&#x2191;</button>
+        <span id="cf-path"></span>
+        <button class="cf-close" data-close="c-files" aria-label="Cerrar">&times;</button>
+      </div>
+      <div class="cf-pickbar">
+        <button id="cf-use">&#x2713; Usar esta carpeta</button>
+        <button id="cf-default">Carpeta por defecto</button>
+      </div>
+      <ul id="cf-list"></ul>
+    </div>
+  </div>
+
+  <!-- Editor. Apila por encima del explorador: al cerrarlo vuelves al listado. -->
+  <div id="c-editor">
+    <div class="ce-head">
+      <button id="ce-close" aria-label="Cerrar">&#x2039;</button>
+      <div class="ce-title">
+        <div id="ce-name"></div>
+        <div id="ce-dir"></div>
+      </div>
+      <span id="ce-dirty" title="Cambios sin guardar">&bull;</span>
+      <button id="ce-wrap" title="Ajustar líneas">&#x21B5;</button>
+      <button id="ce-save" disabled>Guardar</button>
+    </div>
+    <div id="ce-banner"></div>
+    <div class="ce-pane">
+      <pre id="ce-gutter" aria-hidden="true"></pre>
+      <textarea id="ce-area" spellcheck="false" autocapitalize="off"
+                autocorrect="off" autocomplete="off" wrap="off"></textarea>
+    </div>
+    <div id="ce-toast" class="ce-toast"></div>
   </div>
 
   <div id="status">Reconectando...</div>

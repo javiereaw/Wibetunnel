@@ -1,6 +1,7 @@
 // Smoke E2E de Fase 1: login, sesión bash, y verificación del fix de duplicación
 // de scrollback tras reconexión (item 1.5). Corre contra localhost:4021.
 const { chromium } = require('playwright');
+const { disableShellHistory } = require('./helpers');
 
 const MARKER = 'DUPCHECK_XYZ';
 
@@ -25,6 +26,10 @@ function countOccurrences(text, needle) {
   console.log('OK: auth + terminal visible');
 
   await page.waitForTimeout(2000); // prompt del shell
+
+  // Este test tambien corre contra produccion (prod-smoke.sh --ui), donde no
+  // podemos fijar HISTFILE en el env del servidor.
+  await disableShellHistory(page);
 
   // Escribir un comando en el terminal (textarea oculto de xterm)
   await page.locator('.xterm-helper-textarea').first().focus();
