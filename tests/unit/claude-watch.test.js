@@ -125,6 +125,62 @@ test('resolveTranscript: localiza el .jsonl mas reciente y valida el cwd', { ski
   }
 });
 
+// Regresion: el resolver elegia el .jsonl mas reciente del directorio del
+// proyecto SIN comprobar que perteneciera a la sesion en marcha, asi que al
+// abrir `claude` en una carpeta el chat mostraba una conversacion vieja (a
+// veces de otro tema por completo) mientras el terminal mostraba la correcta.
+test('resolveTranscript: no engancha a un transcript anterior al arranque del proceso', { skip: !ON_LINUX && 'requiere /proc (Linux)' }, async () => {
+  const projCwd = path.join(tmpHome, 'proj-stale');
+  const projDir = path.join(tmpHome, 'projects', claudeWatch.slugify(projCwd));
+  fs.mkdirSync(projDir, { recursive: true });
+
+  // Un transcript viejo del mismo proyecto, YA presente antes de lanzar claude.
+  const stale = path.join(projDir, 'sesion-vieja.jsonl');
+  fs.writeFileSync(stale, JSON.stringify({ type: 'user', cwd: projCwd, message: { content: 'de hace horas' } }) + '\n');
+  const hoursAgo = new Date(Date.now() - 6 * 3600 * 1000);
+  fs.utimesSync(stale, hoursAgo, hoursAgo);
+
+  const child = await spawnFakeClaude(projCwd);
+  try {
+    const waiting = claudeWatch.resolveTranscript(child.pid);
+    assert.ok(waiting, 'deberia detectar el proceso claude');
+    assert.strictEqual(waiting.waiting, true, 'no debe enganchar a la sesion vieja');
+    assert.strictEqual(waiting.file, undefined);
+    assert.strictEqual(waiting.cwd, projCwd);
+
+    // En cuanto la sesion en marcha escribe lo suyo, se engancha a ESE fichero.
+    const live = path.join(projDir, 'sesion-viva.jsonl');
+    fs.writeFileSync(live, JSON.stringify({ type: 'user', cwd: projCwd, message: { content: 'la de ahora' } }) + '\n');
+    const found = claudeWatch.resolveTranscript(child.pid);
+    assert.ok(found && !found.waiting, 'deberia enganchar ya');
+    assert.strictEqual(found.file, live);
+  } finally {
+    child.kill();
+  }
+});
+
+test('resolveTranscript: `claude --resume` engancha al fichero viejo en cuanto le escribe', { skip: !ON_LINUX && 'requiere /proc (Linux)' }, async () => {
+  const projCwd = path.join(tmpHome, 'proj-resume');
+  const projDir = path.join(tmpHome, 'projects', claudeWatch.slugify(projCwd));
+  fs.mkdirSync(projDir, { recursive: true });
+  const old = path.join(projDir, 'reanudada.jsonl');
+  fs.writeFileSync(old, JSON.stringify({ type: 'user', cwd: projCwd, message: { content: 'historial' } }) + '\n');
+  const yesterday = new Date(Date.now() - 24 * 3600 * 1000);
+  fs.utimesSync(old, yesterday, yesterday);
+
+  const child = await spawnFakeClaude(projCwd);
+  try {
+    assert.strictEqual(claudeWatch.resolveTranscript(child.pid).waiting, true);
+    // Reanudar = anadir al fichero existente; su mtime salta hacia delante.
+    fs.appendFileSync(old, JSON.stringify({ type: 'user', cwd: projCwd, message: { content: 'sigo aqui' } }) + '\n');
+    const found = claudeWatch.resolveTranscript(child.pid);
+    assert.ok(found && !found.waiting);
+    assert.strictEqual(found.file, old);
+  } finally {
+    child.kill();
+  }
+});
+
 test('findClaudePid: encuentra claude como DESCENDIENTE del pid raiz, no solo si es el propio raiz', { skip: !ON_LINUX && 'requiere /proc (Linux)' }, async () => {
   const projCwd = path.join(tmpHome, 'proj-descendant');
   fs.mkdirSync(projCwd, { recursive: true });

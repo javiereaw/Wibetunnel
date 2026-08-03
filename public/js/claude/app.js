@@ -193,6 +193,25 @@ function handleClaudeState(payload) {
   renderTabStatus(s);
   if (match.id === state.activeId) {
     emptyStateEl.classList.toggle('visible', s.transcript.items.length === 0);
+    renderEmptyState(payload);
+  }
+}
+
+// 'searching' = no hay ningun proceso claude en esta shell.
+// 'waiting'   = si lo hay, pero todavia no ha escrito su transcript. Antes se
+//               enganchaba a la sesion mas reciente del proyecto, que podia ser
+//               de otro dia y de otro tema.
+function renderEmptyState(payload) {
+  const text = document.getElementById('c-empty-text');
+  const hint = document.getElementById('c-empty-hint');
+  if (payload.status === 'waiting') {
+    text.textContent = 'Sesión de claude detectada' + (payload.cwd ? ' en ' + payload.cwd.split(/[/\\]/).pop() : '');
+    hint.textContent = 'Esperando a que escriba su primer mensaje…';
+    return;
+  }
+  if (payload.status === 'searching') {
+    text.textContent = 'Buscando una sesión de claude en esta shell…';
+    hint.textContent = 'Lánzala con claude desde el modo Terminal.';
   }
 }
 

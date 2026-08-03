@@ -24,7 +24,7 @@ function el(tag, cls, text) {
 export function renderTabStatus(s) {
   s.tabEl.classList.remove('c-status-attached', 'c-status-searching');
   if (s.claudeStatus === 'attached') s.tabEl.classList.add('c-status-attached');
-  else if (s.claudeStatus === 'searching') s.tabEl.classList.add('c-status-searching');
+  else if (s.claudeStatus === 'searching' || s.claudeStatus === 'waiting') s.tabEl.classList.add('c-status-searching');
 }
 
 export function doResize(s) {

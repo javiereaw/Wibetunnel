@@ -17,11 +17,28 @@ function slugify(p) { return p.replace(/[^a-zA-Z0-9]/g, '-'); }
 
 function fail(msg) { console.log('FAIL: ' + msg); process.exit(1); }
 
+function projectDir() {
+  const dir = path.join(CLAUDE_HOME, 'projects', slugify(CWD));
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+// Transcript de una sesion anterior, con mtime muy anterior al proceso actual.
+function plantStaleTranscript() {
+  const file = path.join(projectDir(), 'sesion-vieja.jsonl');
+  fs.writeFileSync(file, JSON.stringify({
+    type: 'user', cwd: CWD, sessionId: 'vieja',
+    message: { content: 'CONVERSACION_AJENA_QUE_NO_DEBE_APARECER' },
+  }) + '\n');
+  const old = new Date(Date.now() - 6 * 3600 * 1000);
+  fs.utimesSync(file, old, old);
+  return file;
+}
+
 // Transcript de mentira con un turno completo: prompt, respuesta con markdown,
 // un Edit con structuredPatch y un Bash con stderr.
 function writeTranscript() {
-  const dir = path.join(CLAUDE_HOME, 'projects', slugify(CWD));
-  fs.mkdirSync(dir, { recursive: true });
+  const dir = projectDir();
   const ts = new Date().toISOString();
   const base = { cwd: CWD, sessionId: 'e2e-sess', version: '2.1.220', gitBranch: 'master', timestamp: ts };
   const lines = [
@@ -58,7 +75,10 @@ function writeTranscript() {
 
 (async () => {
   if (!CWD || !CLAUDE_HOME) fail('faltan WIBE_TEST_CWD / WIBE_TEST_CLAUDE_HOME');
-  const file = writeTranscript();
+  // El transcript se planta DESPUES de arrancar el proceso claude (ver abajo):
+  // el servidor solo engancha ficheros escritos por la sesion en marcha, que es
+  // lo que impide mostrar una conversacion vieja de otro tema.
+  let file;
 
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 390, height: 760 } });
@@ -80,10 +100,27 @@ function writeTranscript() {
   await page.keyboard.type(`cp /bin/sleep ${CWD}/claude && cd ${CWD} && ./claude 120 &`);
   await page.keyboard.press('Enter');
   console.log('OK: proceso `claude` lanzado en el PTY');
+  await page.waitForTimeout(1500);
 
   await page.click('#c-btn-mode'); // volver a Chat
+
+  // Se planta primero un transcript VIEJO del mismo proyecto, como el que deja
+  // cualquier sesion anterior. Con claude vivo pero sin haber escrito, el
+  // servidor debe decir que espera — engancharse a ese fichero es justo el bug
+  // que hacia que el chat mostrase una conversacion de otro dia y otro tema.
+  const staleFile = plantStaleTranscript();
+  await page.waitForFunction(
+    () => /Esperando a que escriba/i.test(document.getElementById('c-empty-hint').textContent),
+    null, { timeout: 20000 },
+  );
+  if (await page.locator('.c-turn').count()) fail('no debe pintar nada de una sesión ajena');
+  console.log('OK: con claude vivo pero sin escribir, espera en vez de enganchar a una sesión vieja');
+
+  // Ahora la sesion en marcha escribe lo suyo: a partir de aqui si se engancha.
+  file = writeTranscript();
   // El watcher reintenta cada 2 s mientras busca y re-verifica cada 5 s.
   await page.waitForSelector('.c-turn', { timeout: 25000 });
+  fs.rmSync(staleFile, { force: true });
   console.log('OK: el transcript se engancho y se pinto');
 
   const body = await page.innerText('#c-chat-log');
