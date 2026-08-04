@@ -17,7 +17,7 @@ const { listDirectory, resolveJailed } = require('./lib/fs-handler');
 const { mountFsRoutes } = require('./lib/fs-routes');
 
 const {
-  TOKEN, PORT, SHELL, SHORTCUTS, SESSION_TIMEOUT, RATE_MAX, RATE_WINDOW,
+  TOKEN, PORT, HOST, SHELL, SHORTCUTS, SESSION_TIMEOUT, RATE_MAX, RATE_WINDOW,
   RECONNECT_GRACE, BUFFER_SIZE, MAX_CONNECTIONS, MAX_SESSIONS,
   AUTH_TIMEOUT_MS, SHUTDOWN_GRACE_MS, SSL_CERT, SSL_KEY, ALLOWED_ORIGINS,
   PROFILES, CLAUDE_VIEW,
@@ -432,9 +432,9 @@ setInterval(() => {
 }, HEALTH_LOG_INTERVAL_MS).unref();
 
 // === Arrancar servidor ===
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
   const proto = (SSL_CERT && SSL_KEY) ? 'https' : 'http';
-  log.info(`Wibetunnel corriendo en ${proto}://localhost:${PORT}`);
+  log.info(`Wibetunnel corriendo en ${proto}://localhost:${PORT} (bind ${HOST})`);
   if (SESSION_TIMEOUT > 0) log.info(`[TIMEOUT] Inactividad: ${SESSION_TIMEOUT} min`);
   if (RATE_MAX) log.info(`[RATE] Max ${RATE_MAX} intentos fallidos, bloqueo ${RATE_WINDOW} min`);
   log.info(`[RECONNECT] Grace: ${RECONNECT_GRACE}s, Buffer: ${BUFFER_SIZE} bytes`);
