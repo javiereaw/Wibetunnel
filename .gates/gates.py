@@ -15,9 +15,22 @@ INDETERMINADO existe porque el exit code no sirve de señal de salud: hay
 validadores que salen 1 funcionando bien y otros que salen 0 siempre. Confundir
 "petó" con "cero violaciones" congelaría un baseline falso.
 
+Tres perfiles, por dónde corre cada puerta:
+    fast   solo python3 stdlib            pre-push (un hook no tiene pnpm en el PATH)
+    ci     fast + ratchets que usan pnpm  CI, cuando las binarias ya son pasos propios
+    full   todo, incluidas las binarias   shell interactiva
+
+'ci' existe porque un workflow que ya corre `test`/`lint`/`typecheck` como pasos
+con nombre propio no debe correrlos otra vez dentro del runner: es tiempo
+duplicado y encima peor atribuido (en rojo se lee "Puertas", no "Unit tests").
+Pero sacar el perfil entero se llevaba por delante los ratchets que necesitan
+pnpm —eslint-estructural— que NO estaban duplicados por ningún paso. 'ci' es
+justo esa diferencia: todos los ratchets, ninguna puerta binaria.
+
 Uso:
     gates.py                              perfil 'full'
     gates.py --profile fast               puertas baratas (pre-push)
+    gates.py --profile ci                 ratchets sin puertas binarias
     gates.py --baseline                   escribe el baseline inicial
     gates.py --rebaseline --reason "..."  acepta bajada grande o cambio de tooling
     gates.py --verify                     canario: demuestra que la puerta bloquea
@@ -218,7 +231,9 @@ def select_gates(manifest, profile):
     for g in manifest.get("gates", []):
         if g.get("exempt"):
             continue
-        if profile in g.get("profiles", ["fast", "full"]):
+        # El default cubre las puertas viejas del manifiesto que no declaran
+        # 'profiles': son ratchets baratos, luego entran tambien en 'ci'.
+        if profile in g.get("profiles", ["fast", "ci", "full"]):
             out.append(g)
     return out
 
@@ -349,7 +364,7 @@ def cmd_verify(root, profile):
 
 def main():
     ap = argparse.ArgumentParser(description="Runner de puertas con trinquete")
-    ap.add_argument("--profile", default="full", choices=["fast", "full"])
+    ap.add_argument("--profile", default="full", choices=["fast", "ci", "full"])
     ap.add_argument("--baseline", action="store_true", help="escribe el baseline inicial")
     ap.add_argument("--rebaseline", action="store_true",
                     help="acepta bajada grande o cambio de tooling")

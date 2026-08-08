@@ -1,6 +1,7 @@
 {
   "version": 1,
   "_nota": "Wibetunnel ya tenia CI sana (lint + unit + E2E Playwright en push:[master] y todos los PR). El trinquete se monta ENCIMA, no sustituye el enganche. Rama por defecto: master.",
+  "_perfiles": "Tres. 'fast' = solo sondas de python puro, porque un git hook no tiene npx en el PATH. 'ci' = todos los ratchets, ninguna puerta binaria: el workflow ya corre lint y tests como pasos con nombre propio y repetirlos dentro del runner era tiempo duplicado con peor atribucion del fallo. 'full' = todo, para la shell interactiva. La diferencia entre 'fast' y 'ci' es eslint-estructural, que necesita npx.",
   "_sin_puerta_de_tests_hermanos": "La sonda missing_tests busca un .test.js hermano; aqui los tests viven en tests/unit/ separados del codigo, asi que no aplica y se omite a proposito en vez de configurarla mal.",
   "gates": [
     {
@@ -20,6 +21,7 @@
       "aliases": {},
       "profiles": [
         "fast",
+        "ci",
         "full"
       ]
     },
@@ -39,6 +41,7 @@
       ],
       "profiles": [
         "fast",
+        "ci",
         "full"
       ]
     },
@@ -59,6 +62,7 @@
       "max_lines": 500,
       "profiles": [
         "fast",
+        "ci",
         "full"
       ]
     },
@@ -76,8 +80,10 @@
       ],
       "timeout": 300,
       "profiles": [
+        "ci",
         "full"
       ],
+      "_nota": "No entra en 'fast' porque necesita npx, que no existe en el PATH de un hook. SI entra en 'ci': es el unico ratchet que ningun paso del workflow duplica —el paso 'Lint' solo mira errores— asi que sacarla de CI la dejaba viva solo en local.",
       "_fingerprint": "Solo la config del linter, NO package.json. Hashear package.json entero salta con cualquier script nuevo — paso en la primera CI de este PR. Coste: un update que cambie el linter saldra como claves nuevas, no como INDETERMINADO; la senal llega igual y dice cuales."
     },
     {
