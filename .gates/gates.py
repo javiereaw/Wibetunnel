@@ -93,10 +93,14 @@ def eval_binary(gate, root):
         return {"state": INDETERMINADO, "detail": bad}
     if code == exp:
         return {"state": OK, "detail": "exit %s" % code}
+    # 12 lineas, no 3: con 3 no se puede diagnosticar nada. Un pytest que falla
+    # al recolectar imprime la lista de modulos que no importan, y con tres
+    # lineas solo se ve el resumen final ("9 errors during collection"), que no
+    # dice cual. Pasó de verdad diagnosticando la CI de quant-smallcap.
     tail = (se or so).strip().splitlines()
     return {"state": VIOLACION,
             "detail": "exit %s (esperado %s)" % (code, exp),
-            "output": tail[-3:] if tail else []}
+            "output": tail[-12:] if tail else []}
 
 
 def _gather_keys(gate, root):

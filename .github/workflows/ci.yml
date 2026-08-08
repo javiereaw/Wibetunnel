@@ -30,10 +30,17 @@ jobs:
         run: npm test
 
       # Puertas con trinquete: el baseline solo puede bajar. Un fichero >500 LOC
-      # o una función compleja nueva tumban el job. Va antes del E2E porque es
-      # instantáneo y el E2E tarda minutos.
+      # o un ciclo de importación nuevo tumban el job. Va antes del E2E porque
+      # es instantáneo y el E2E tarda minutos.
+      #
+      # Perfil 'fast', no 'full': el perfil full incluye dos puertas binarias
+      # —`npm run lint` y `npm test`— que este mismo job ya corre arriba como
+      # pasos con nombre propio. Correrlas dos veces es tiempo tirado, y los
+      # pasos con nombre dan mejor atribución del fallo: en rojo se ve "Unit
+      # tests", no "Puertas (trinquete)". El perfil fast deja solo las sondas
+      # de python puro (~0,2 s) y no duplica nada.
       - name: Puertas (trinquete)
-        run: python3 .gates/gates.py --profile full
+        run: python3 .gates/gates.py --profile fast
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
