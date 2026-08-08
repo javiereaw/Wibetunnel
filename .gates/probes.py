@@ -147,6 +147,14 @@ def probe_secrets(cfg, root):
 BUILTINS = {"loc": probe_loc, "missing_tests": probe_missing_tests,
             "secrets": probe_secrets}
 
+# Sondas del grafo de importaciones (tests de arquitectura). Viven en otro
+# fichero para no pasar de 500 LOC; si falta, el resto sigue funcionando.
+try:
+    import probes_graph
+    BUILTINS.update(probes_graph.GRAPH_BUILTINS)
+except ImportError:
+    pass
+
 
 # ── Claves desde la salida de una herramienta ───────────────────────────────
 # Preferir SIEMPRE formatos máquina (json) sobre parsear prosa: la prosa cambia

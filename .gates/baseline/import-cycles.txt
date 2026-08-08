@@ -1,0 +1,3 @@
+# trinquete: una clave por linea, ordenado. Solo puede encoger.
+ciclo :: public/js/sessions.js | public/js/settings.js | public/js/socket.js | public/js/ui.js
+ciclo :: public/js/sessions.js | public/js/socket.js

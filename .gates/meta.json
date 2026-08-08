@@ -1,8 +1,14 @@
 {
   "_runner_version": 1,
+  "dead-exports": {
+    "denominator": 151
+  },
   "eslint-estructural": {
     "denominator": 64,
     "fingerprint": "c61405b8232bfb8d"
+  },
+  "import-cycles": {
+    "denominator": 47
   },
   "loc-500": {
     "denominator": 47

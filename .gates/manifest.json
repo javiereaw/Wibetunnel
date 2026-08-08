@@ -4,23 +4,81 @@
   "_sin_puerta_de_tests_hermanos": "La sonda missing_tests busca un .test.js hermano; aqui los tests viven en tests/unit/ separados del codigo, asi que no aplica y se omite a proposito en vez de configurarla mal.",
   "gates": [
     {
+      "name": "import-cycles",
+      "type": "ratchet",
+      "builtin": "import_cycles",
+      "include": [
+        "server.js",
+        "lib/**/*.js",
+        "scripts/**/*.js",
+        "public/js/**/*.js"
+      ],
+      "exclude": [
+        "**/node_modules/**",
+        "public/vendor/**"
+      ],
+      "aliases": {},
+      "profiles": [
+        "fast",
+        "full"
+      ]
+    },
+    {
+      "name": "dead-exports",
+      "type": "ratchet",
+      "builtin": "dead_exports",
+      "include": [
+        "server.js",
+        "lib/**/*.js",
+        "scripts/**/*.js",
+        "public/js/**/*.js"
+      ],
+      "exclude": [
+        "**/node_modules/**",
+        "public/vendor/**"
+      ],
+      "profiles": [
+        "fast",
+        "full"
+      ]
+    },
+    {
       "name": "loc-500",
       "type": "ratchet",
       "builtin": "loc",
-      "include": ["server.js", "lib/**/*.js", "scripts/**/*.js", "public/js/**/*.js"],
-      "exclude": ["**/node_modules/**", "public/vendor/**"],
+      "include": [
+        "server.js",
+        "lib/**/*.js",
+        "scripts/**/*.js",
+        "public/js/**/*.js"
+      ],
+      "exclude": [
+        "**/node_modules/**",
+        "public/vendor/**"
+      ],
       "max_lines": 500,
-      "profiles": ["fast", "full"]
+      "profiles": [
+        "fast",
+        "full"
+      ]
     },
     {
       "name": "eslint-estructural",
       "type": "ratchet",
       "keys_cmd": "npx eslint . --format json",
       "keys_format": "eslint-json",
-      "keys_exit_ok": [0, 1],
-      "fingerprint_files": ["eslint.config.js", "package.json"],
+      "keys_exit_ok": [
+        0,
+        1
+      ],
+      "fingerprint_files": [
+        "eslint.config.js",
+        "package.json"
+      ],
       "timeout": 300,
-      "profiles": ["full"]
+      "profiles": [
+        "full"
+      ]
     },
     {
       "name": "lint",
@@ -28,7 +86,9 @@
       "cmd": "npm run lint",
       "expected_exit": 0,
       "timeout": 300,
-      "profiles": ["full"]
+      "profiles": [
+        "full"
+      ]
     },
     {
       "name": "tests",
@@ -36,7 +96,9 @@
       "cmd": "npm test",
       "expected_exit": 0,
       "timeout": 300,
-      "profiles": ["full"]
+      "profiles": [
+        "full"
+      ]
     }
   ]
 }
