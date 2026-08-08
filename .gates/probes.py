@@ -17,6 +17,29 @@ import os
 import re
 import subprocess
 
+# Version del runner. Vive aqui, no en gates.py, para que este junto a la firma
+# que la acompaña: las dos se leen y se escriben en el mismo sitio.
+RUNNER_VERSION = 2
+
+# Firma del runner: sha256 de los cinco ficheros, puesta por `gates.py --sign` en
+# la fuente canonica y copiada verbatim a cada repo. Vacia = build sin firmar,
+# que es INDETERMINADO, nunca OK.
+RUNNER_DIGEST = "a77c32f2204575d6"
+
+RUNNER_FILES = ("gates.py", "probes.py", "probes_graph.py",
+                "probes_contract.py", "canaries.py")
+DIGEST_MARK = "RUNNER_DIGEST = "
+
+
+class Indeterminado(Exception):
+    """Una sonda no pudo medir. gates.py lo traduce a INDETERMINADO tal cual.
+
+    Existe porque una sonda solo tenia dos formas de responder —claves o una
+    excepcion cualquiera— y "no he podido mirar" no es ninguna de las dos. Sin
+    esto, una sonda que no puede medir devuelve [] y eso se lee como "cero
+    violaciones": exactamente la confusion que el tercer estado viene a evitar.
+    """
+
 
 # ── Ejecución ───────────────────────────────────────────────────────────────
 
@@ -147,11 +170,18 @@ def probe_secrets(cfg, root):
 BUILTINS = {"loc": probe_loc, "missing_tests": probe_missing_tests,
             "secrets": probe_secrets}
 
-# Sondas del grafo de importaciones (tests de arquitectura). Viven en otro
-# fichero para no pasar de 500 LOC; si falta, el resto sigue funcionando.
+# Sondas que viven en otro fichero para no pasar de 500 LOC. Si falta alguno, el
+# resto sigue funcionando: la puerta que lo usara sale INDETERMINADO por
+# "builtin desconocido", que es la respuesta correcta, no un crash del runner.
 try:
     import probes_graph
     BUILTINS.update(probes_graph.GRAPH_BUILTINS)
+except ImportError:
+    pass
+
+try:
+    import probes_contract
+    BUILTINS.update(probes_contract.CONTRACT_BUILTINS)
 except ImportError:
     pass
 
@@ -288,3 +318,107 @@ def write_meta(root, meta):
     with open(meta_path(root), "w", encoding="utf-8") as fh:
         json.dump(meta, fh, indent=2, sort_keys=True, ensure_ascii=False)
         fh.write("\n")
+
+
+# ── Frescura del runner ─────────────────────────────────────────────────────
+# El runner se vendoriza en cada repo porque GitHub Actions solo hace checkout
+# del repo consumidor: una puerta que leyera un fichero de fuera se romperia en
+# CI. El precio es la divergencia, y ya se cobro — la canonica se quedo dos
+# cambios por detras de tres repos y nadie se entero.
+#
+# Esta sonda cierra lo que SI se puede demostrar desde dentro del repo:
+#   integridad  el runner es byte a byte el que firmo la canonica
+#   downgrade   nadie ha metido una copia mas vieja de la que ya corrio aqui
+#   expectativa el manifiesto declara que version espera, y se cumple
+#
+# Lo que NO se puede demostrar desde dentro: que no exista una version mas
+# nueva que este repo no ha visto nunca. Eso no esta en el repo por definicion.
+# Por eso `min_version` es obligatorio: sin expectativa declarada la respuesta
+# es INDETERMINADO, no OK.
+
+
+def runner_digest(gdir):
+    """sha256 de los cinco ficheros del runner. Levanta Indeterminado si falta uno.
+
+    La linea de la firma se excluye del calculo: un fichero no puede contener su
+    propio hash. Se filtra en los tres, no solo en probes.py, para que mover la
+    constante de sitio no cambie el resultado.
+    """
+    h = hashlib.sha256()
+    for name in RUNNER_FILES:
+        p = os.path.join(gdir, name)
+        if not os.path.isfile(p):
+            raise Indeterminado("falta %s en %s: runner incompleto" % (name, gdir))
+        h.update(name.encode("utf-8"))
+        try:
+            with open(p, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    if line.startswith(DIGEST_MARK):
+                        continue
+                    h.update(line.encode("utf-8"))
+        except Exception as e:
+            raise Indeterminado("no se pudo leer %s: %s" % (name, e))
+    return h.hexdigest()[:16]
+
+
+def sign_runner(gdir):
+    """Reescribe la constante RUNNER_DIGEST de probes.py con el hash real."""
+    digest = runner_digest(gdir)
+    p = os.path.join(gdir, "probes.py")
+    with open(p, "r", encoding="utf-8") as fh:
+        lines = fh.readlines()
+    hit = False
+    for i, line in enumerate(lines):
+        if line.startswith(DIGEST_MARK):
+            lines[i] = '%s"%s"\n' % (DIGEST_MARK, digest)
+            hit = True
+            break
+    if not hit:
+        raise Indeterminado("probes.py no declara %s: nada que firmar" % DIGEST_MARK.strip())
+    with open(p, "w", encoding="utf-8") as fh:
+        fh.writelines(lines)
+    # Sin esto la siguiente pasada puede leer la firma VIEJA de un .pyc rancio y
+    # salir VIOLACION sobre un runner correcto: la firma antigua y la nueva miden
+    # lo mismo (16 chars) y se escriben en el mismo segundo, asi que el chequeo
+    # mtime+size que usa Python para invalidar el cache pasa. Costo 10 min.
+    cache = os.path.join(gdir, "__pycache__")
+    if os.path.isdir(cache):
+        for f in os.listdir(cache):
+            try:
+                os.remove(os.path.join(cache, f))
+            except Exception:
+                pass
+    return digest
+
+
+def probe_runner_freshness(cfg, root):
+    """Clave = una forma concreta en que esta copia del runner no es la buena."""
+    got = runner_digest(gates_dir(root))
+    if not RUNNER_DIGEST:
+        raise Indeterminado(
+            "runner sin firmar: corre `gates.py --sign` en la fuente canonica")
+
+    keys = []
+    if got != RUNNER_DIGEST:
+        keys.append("runner :: alterado :: firmado %s, calculado %s"
+                    % (RUNNER_DIGEST, got))
+
+    # meta.json solo sube de version (lo garantiza gates.py). Si lo que hay
+    # escrito es MAYOR que lo que corre, alguien ha metido una copia vieja.
+    seen = read_meta(root).get("_runner_version")
+    if isinstance(seen, int) and seen > RUNNER_VERSION:
+        keys.append("runner :: downgrade :: este repo ya corrio v%s y esta copia es v%s"
+                    % (seen, RUNNER_VERSION))
+
+    want = cfg.get("min_version")
+    if want is None:
+        raise Indeterminado(
+            "la puerta no declara 'min_version': sin expectativa no hay nada "
+            "contra lo que comparar, y eso es INDETERMINADO, no OK")
+    if RUNNER_VERSION < int(want):
+        keys.append("runner :: atrasado :: el manifiesto exige v%s y esta copia es v%s"
+                    % (want, RUNNER_VERSION))
+    return sorted(keys), None
+
+
+BUILTINS["runner_freshness"] = probe_runner_freshness

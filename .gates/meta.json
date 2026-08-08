@@ -1,5 +1,6 @@
 {
-  "_runner_version": 1,
+  "_runner_version": 2,
+  "contrato-agentes": {},
   "dead-exports": {
     "denominator": 151,
     "rebaseline_reason": "fingerprint estrechado a eslint.config.js: hashear package.json daba falsa alarma con los scripts gates:*"
@@ -9,6 +10,7 @@
     "fingerprint": "5f78d198e5e49f45",
     "rebaseline_reason": "fingerprint estrechado a eslint.config.js: hashear package.json daba falsa alarma con los scripts gates:*"
   },
+  "frescura-runner": {},
   "import-cycles": {
     "denominator": 47,
     "rebaseline_reason": "fingerprint estrechado a eslint.config.js: hashear package.json daba falsa alarma con los scripts gates:*"

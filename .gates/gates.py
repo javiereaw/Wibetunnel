@@ -34,6 +34,7 @@ Uso:
     gates.py --baseline                   escribe el baseline inicial
     gates.py --rebaseline --reason "..."  acepta bajada grande o cambio de tooling
     gates.py --verify                     canario: demuestra que la puerta bloquea
+    gates.py --sign                       firma el runner (solo en la canonica)
     gates.py --status                     salida JSON
 """
 
@@ -45,13 +46,15 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import canaries  # noqa: E402
 import probes  # noqa: E402
 
 OK = "OK"
 VIOLACION = "VIOLACION"
 INDETERMINADO = "INDETERMINADO"
 
-RUNNER_VERSION = 1
+# Una sola definicion, en probes.py, junto a la firma que la acompaña.
+RUNNER_VERSION = probes.RUNNER_VERSION
 
 # Una bajada sospechosamente grande exige --rebaseline: puede venir de un
 # directorio borrado, un glob nuevo en el ignore o un linter que analizo la
@@ -124,6 +127,10 @@ def _gather_keys(gate, root):
             return None, None, "builtin desconocido: %s" % gate["builtin"]
         try:
             keys, denom = fn(gate, root)
+        except probes.Indeterminado as e:
+            # "No he podido mirar" no es un fallo de la sonda: es el tercer
+            # estado, y lleva su propio motivo. No lo disfraces de crash.
+            return None, None, str(e)
         except Exception as e:
             return None, None, "sonda fallo: %s" % e
         return keys, denom, None
@@ -266,7 +273,19 @@ def run_all(root, profile, write_mode, allow_rebaseline, reason):
     results = []
     worst = 0
 
-    for g in select_gates(manifest, profile):
+    gates = select_gates(manifest, profile)
+    # Cero puertas seleccionadas NO es "todo bien": es que el perfil no existe en
+    # este manifiesto. Visto en quant-smallcap el 08-08-2026 — su gates.py acepta
+    # --profile ci pero ninguna puerta lo declara, asi que el perfil corria nada y
+    # salia 0. Un verde que no ha mirado nada es peor que un rojo.
+    if not gates:
+        results.append({"name": "perfil-%s" % profile, "type": "meta",
+                        "state": INDETERMINADO, "secs": 0.0,
+                        "detail": "ninguna puerta declara el perfil '%s': "
+                                  "no se ha comprobado NADA" % profile})
+        return results, 2
+
+    for g in gates:
         t0 = time.time()
         if g["type"] == "binary":
             r = eval_binary(g, root)
@@ -286,7 +305,14 @@ def run_all(root, profile, write_mode, allow_rebaseline, reason):
         elif r["state"] == INDETERMINADO:
             worst = max(worst, 2)
 
-    meta["_runner_version"] = RUNNER_VERSION
+    # Monotono a proposito: solo sube. Es lo que permite a la sonda de frescura
+    # detectar que alguien ha metido una copia mas vieja del runner — si aqui se
+    # escribiera siempre la version actual, el primer run tras el downgrade
+    # borraria la unica prueba que hay dentro del repo. Bajarlo exige
+    # --rebaseline, igual que cualquier otra bajada del trinquete.
+    prev = meta.get("_runner_version")
+    if allow_rebaseline or not isinstance(prev, int) or RUNNER_VERSION > prev:
+        meta["_runner_version"] = RUNNER_VERSION
     probes.write_meta(root, meta)
     return results, worst
 
@@ -308,58 +334,32 @@ def report(results, profile):
             print("            %s %s" % (green("-"), k))
         for line in r.get("output", []):
             print("            %s" % dim(line[:100]))
+    # El recuento va SIEMPRE, tambien en verde. Un log de CI que solo dice "OK"
+    # no distingue "ocho puertas pasaron" de "no corrio ninguna": es exactamente
+    # la mina que tenia quant-smallcap, donde --profile ci ejecutaba cero puertas
+    # y salia 0. El numero es lo unico que lo delata de un vistazo.
+    n = len(results)
+    ok = sum(1 for r in results if r["state"] == OK)
+    ko = sum(1 for r in results if r["state"] == VIOLACION)
+    ind = n - ok - ko
+    print("  " + "-" * 58)
+    print("  %d puerta(s) ejecutada(s): %s, %s, %s" % (
+        n, green("%d OK" % ok), red("%d en rojo" % ko),
+        yellow("%d indeterminada(s)" % ind)))
     print("")
 
 
-def cmd_verify(root, profile):
-    """Canario: mete un fallo sintetico y exige que la puerta enrojezca.
-
-    Comprobar que el fichero de hook existe es exactamente el error que tiene
-    todo el parque. Esto demuestra el presente, no lo supone.
-    """
-    manifest = load_manifest(root)
-    cands = [g for g in select_gates(manifest, profile)
-             if g.get("type") == "ratchet" and g.get("builtin") == "loc"]
-    if not cands:
-        sys.stderr.write("No hay puerta 'loc' en el perfil %s: sin canario.\n" % profile)
-        return 2
-    gate = cands[0]
-    includes = gate.get("include", [])
-    if not includes:
-        sys.stderr.write("La puerta loc no declara 'include'.\n")
-        return 2
-
-    # El canario tiene que caer DENTRO de lo que la puerta mira: hay que sacar
-    # la extension y el directorio del propio patron. Un .ts en la raiz no lo
-    # detecta una puerta que vigila lib/**/*.js.
-    pattern = next((p for p in includes if "*" in p), includes[0])
-    ext = os.path.splitext(pattern)[1] or ".txt"
-    stem = pattern.split("*")[0].rstrip("/")
-    target = os.path.join(root, stem) if stem else root
-    if not os.path.isdir(target):
-        target = root
-    canary = os.path.join(target, "zz_canario_trinquete" + ext)
-    limit = int(gate.get("max_lines", 500))
-
-    print("  canario: %s con %s lineas" % (os.path.relpath(canary, root), limit + 100))
+def cmd_sign(root):
+    """Firma el runner. Solo tiene sentido en la fuente canonica."""
     try:
-        with open(canary, "w", encoding="utf-8") as fh:
-            fh.write("// fichero sintetico del canario de trinquete - se borra solo\n")
-            for i in range(limit + 100):
-                fh.write("export const canario%d = %d;\n" % (i, i))
-        r = eval_ratchet(gate, root, probes.read_meta(root), False)
-    finally:
-        if os.path.exists(canary):
-            os.remove(canary)
+        digest = probes.sign_runner(probes.gates_dir(root))
+    except probes.Indeterminado as e:
+        sys.stderr.write("%s\n" % e)
+        return 2
+    print("  runner v%s firmado: %s" % (RUNNER_VERSION, digest))
+    print("  " + dim("sincroniza las copias vendorizadas antes de commitear"))
+    return 0
 
-    if r["state"] == VIOLACION:
-        print("  %s la puerta '%s' detecto el fallo sintetico" % (green("OK"), gate["name"]))
-        print("  %s" % dim(r.get("detail", "")))
-        return 0
-    print("  %s la puerta '%s' NO bloqueo el canario (%s: %s)"
-          % (red("FALLO"), gate["name"], r["state"], r.get("detail", "")))
-    print("  " + red("La puerta es decorativa. No te fies de ella."))
-    return 1
 
 
 def main():
@@ -370,13 +370,18 @@ def main():
                     help="acepta bajada grande o cambio de tooling")
     ap.add_argument("--reason", default="", help="motivo obligatorio con --rebaseline")
     ap.add_argument("--verify", action="store_true", help="canario")
+    ap.add_argument("--sign", action="store_true",
+                    help="firma el runner (solo en la fuente canonica)")
     ap.add_argument("--status", action="store_true", help="salida JSON")
     args = ap.parse_args()
 
     root = repo_root()
 
+    if args.sign:
+        sys.exit(cmd_sign(root))
+
     if args.verify:
-        sys.exit(cmd_verify(root, args.profile))
+        sys.exit(canaries.cmd_verify(root, args.profile))
 
     if args.rebaseline and not args.reason:
         sys.stderr.write('--rebaseline exige --reason "...": queda escrito en meta.json\n')

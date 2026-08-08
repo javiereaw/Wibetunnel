@@ -87,6 +87,76 @@
       "_fingerprint": "Solo la config del linter, NO package.json. Hashear package.json entero salta con cualquier script nuevo — paso en la primera CI de este PR. Coste: un update que cambie el linter saldra como claves nuevas, no como INDETERMINADO; la senal llega igual y dice cuales."
     },
     {
+      "name": "frescura-runner",
+      "type": "ratchet",
+      "builtin": "runner_freshness",
+      "min_version": 2,
+      "profiles": [
+        "fast",
+        "ci",
+        "full"
+      ],
+      "_nota": "El runner vive vendorizado en .gates/ porque GitHub Actions solo hace checkout de este repo. El precio es la divergencia, y ya se cobro: el 08-08-2026 la fuente canonica llevaba dos cambios de retraso respecto a este repo. Comprueba lo que SI se puede demostrar sin salir del repo: firma, downgrade y expectativa (min_version). Sin 'min_version' la sonda sale INDETERMINADO a proposito.",
+      "_perfil": "Entra en 'fast' porque cuesta 0,00 s medidos, es python puro y no toca la red: un runner manipulado tiene que enrojecer en el pre-push, no dos pasos mas tarde en CI."
+    },
+    {
+      "name": "contrato-agentes",
+      "type": "ratchet",
+      "builtin": "agent_contract",
+      "profiles": [
+        "ci",
+        "full"
+      ],
+      "agents": {
+        "_default": {
+          "_nota": "Sin restricciones a proposito. Aqui cae todo lo que no lleva firma —y un humano en su propia rama NO es un agente—. Apretar esto convertiria cada edicion manual de Javi en una violacion, y una puerta que estorba al dueno del repo acaba desactivada."
+        },
+        "jardinero": {
+          "_nota": "El unico con .gates/ abierto: su trabajo ES bajar el baseline, y hacerlo exige tocar .gates/baseline/*.txt. Aqui corre como job 'wibetunnel-jardinero'. Sin artifact_roots a proposito: quita violaciones reales, que viven en cualquier .js del repo."
+        },
+        "wibetunnel-log-review": {
+          "forbidden_writes": [
+            ".gates/**"
+          ],
+          "_nota": "Cron real de las 08:10 (--job wibetunnel-log-review). Sus --allowedTools ya lo limitan a Edit(reports/**), asi que esta regla es cinturon ademas de tirantes; se declara igual porque los allowedTools se editan en una linea de crontab y el contrato no."
+        },
+        "cesar-dev": {
+          "forbidden_writes": [
+            ".gates/**"
+          ]
+        },
+        "cesar-mejoras-diarias": {
+          "forbidden_writes": [
+            ".gates/**"
+          ]
+        },
+        "augusto-dev": {
+          "forbidden_writes": [
+            ".gates/**"
+          ]
+        },
+        "goya": {
+          "forbidden_writes": [
+            ".gates/**"
+          ]
+        },
+        "curador": {
+          "forbidden_writes": [
+            ".gates/**"
+          ]
+        },
+        "auditor-trimestral": {
+          "forbidden_writes": [
+            ".gates/**"
+          ]
+        }
+      },
+      "_nota": "La unica puerta que mira el DIFF y no el arbol, asi que es la unica que ve las cuatro formas de bajar el numero sin arreglar nada: borrar lineas del baseline a mano, anadir globs al exclude, subir un umbral y meter eslint-disable.",
+      "_regla_innegociable": ".gates/ prohibido a todo agente menos al jardinero. Es la unica regla que no se negocia: sin ella un agente puede editar su propia puerta y el trinquete no vale nada.",
+      "_conservadurismo": "Se declara la flota entera aunque hoy solo corran aqui dos jobs (wibetunnel-log-review y wibetunnel-jardinero): un agente que nunca aparece no cuesta nada, y el dia que se enchufe ya llega con la regla puesta. NO se prohibe .github/workflows/**: este repo tiene CI sana con lint, unit y E2E de Playwright, y tocar ese workflow es trabajo legitimo. Tampoco se declaran artifact_roots: acotar donde escribe cada agente exige conocer su alcance real, y hoy no se conoce.",
+      "_perfil": "Fuera de 'fast': cuesta 0,64 s de los que ~0,58 s son la llamada 'gh repo view' que resuelve la rama por defecto (aqui, master). Offline ese gh se come su timeout de 20 s antes de caer al fallback, y un hook que tarda 20 s se desactiva solo."
+    },
+    {
       "name": "lint",
       "type": "binary",
       "cmd": "npm run lint",
