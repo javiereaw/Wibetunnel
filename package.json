@@ -8,7 +8,9 @@
     "vendor": "node scripts/vendor.js",
     "lint": "eslint .",
     "test": "node --test \"tests/unit/*.test.js\"",
-    "test:e2e": "bash tests/e2e/run.sh"
+    "test:e2e": "bash tests/e2e/run.sh",
+    "gates": "python3 .gates/gates.py --profile full",
+    "gates:fast": "python3 .gates/gates.py --profile fast"
   },
   "author": "Javier Eaw <javiereaw@gmail.com>",
   "license": "MIT",

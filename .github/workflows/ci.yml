@@ -10,7 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # fetch-depth: 0 — el trinquete compara el baseline contra el histórico.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -25,6 +28,12 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+      # Puertas con trinquete: el baseline solo puede bajar. Un fichero >500 LOC
+      # o una función compleja nueva tumban el job. Va antes del E2E porque es
+      # instantáneo y el E2E tarda minutos.
+      - name: Puertas (trinquete)
+        run: python3 .gates/gates.py --profile full
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium

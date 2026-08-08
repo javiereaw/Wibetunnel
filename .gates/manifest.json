@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "_nota": "Wibetunnel ya tenia CI sana (lint + unit + E2E Playwright en push:[master] y todos los PR). El trinquete se monta ENCIMA, no sustituye el enganche. Rama por defecto: master.",
+  "_sin_puerta_de_tests_hermanos": "La sonda missing_tests busca un .test.js hermano; aqui los tests viven en tests/unit/ separados del codigo, asi que no aplica y se omite a proposito en vez de configurarla mal.",
+  "gates": [
+    {
+      "name": "loc-500",
+      "type": "ratchet",
+      "builtin": "loc",
+      "include": ["server.js", "lib/**/*.js", "scripts/**/*.js", "public/js/**/*.js"],
+      "exclude": ["**/node_modules/**", "public/vendor/**"],
+      "max_lines": 500,
+      "profiles": ["fast", "full"]
+    },
+    {
+      "name": "eslint-estructural",
+      "type": "ratchet",
+      "keys_cmd": "npx eslint . --format json",
+      "keys_format": "eslint-json",
+      "keys_exit_ok": [0, 1],
+      "fingerprint_files": ["eslint.config.js", "package.json"],
+      "timeout": 300,
+      "profiles": ["full"]
+    },
+    {
+      "name": "lint",
+      "type": "binary",
+      "cmd": "npm run lint",
+      "expected_exit": 0,
+      "timeout": 300,
+      "profiles": ["full"]
+    },
+    {
+      "name": "tests",
+      "type": "binary",
+      "cmd": "npm test",
+      "expected_exit": 0,
+      "timeout": 300,
+      "profiles": ["full"]
+    }
+  ]
+}
