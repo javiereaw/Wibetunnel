@@ -39,7 +39,14 @@ VIOLACION = "VIOLACION"
 INDETERMINADO = "INDETERMINADO"
 
 RUNNER_VERSION = 1
-DROP_LIMIT = 0.20  # una bajada mayor al 20% exige --rebaseline
+
+# Una bajada sospechosamente grande exige --rebaseline: puede venir de un
+# directorio borrado, un glob nuevo en el ignore o un linter que analizo la
+# mitad. Pero el porcentaje solo no sirve: con un baseline de 1, bajar a 0 es un
+# 100% y es exactamente el resultado que se busca. Hacen falta LAS DOS
+# condiciones — porcentaje alto Y una cantidad absoluta que de verdad sorprenda.
+DROP_LIMIT = 0.20
+DROP_MIN_KEYS = 5
 
 IS_TTY = sys.stdout.isatty()
 
@@ -177,7 +184,8 @@ def eval_ratchet(gate, root, meta, allow_rebaseline, first_run=False):
     res.update({"state": OK, "detail": "%s (baseline %s)" % (len(keys), len(base))})
     if idas:
         drop = float(len(idas)) / max(len(base), 1)
-        if drop > DROP_LIMIT and not allow_rebaseline:
+        sospechosa = drop > DROP_LIMIT and len(idas) >= DROP_MIN_KEYS
+        if sospechosa and not allow_rebaseline:
             res["state"] = INDETERMINADO
             res["detail"] = ("bajada del %.0f%% (%s claves) — demasiado grande para "
                              "aceptarla sola; usa --rebaseline --reason"
@@ -215,7 +223,11 @@ def _persist(gate, r, root, meta, write_mode, allow_rebaseline, reason):
     """Escribe baseline solo desde un estado no-indeterminado."""
     if gate["type"] != "ratchet" or r["state"] == INDETERMINADO:
         return
-    if not (write_mode or r.get("ratchet")):
+    # allow_rebaseline tiene que escribir aunque el conjunto de claves NO haya
+    # cambiado: si no, un --rebaseline reconcilia solo las puertas que ademas
+    # bajaron, y las otras se quedan con el denominador o el fingerprint viejo
+    # y vuelven a salir INDETERMINADO en la siguiente pasada.
+    if not (write_mode or allow_rebaseline or r.get("ratchet")):
         return
     if r.get("keys") is None:
         return
