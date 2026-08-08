@@ -72,13 +72,13 @@
         1
       ],
       "fingerprint_files": [
-        "eslint.config.js",
-        "package.json"
+        "eslint.config.js"
       ],
       "timeout": 300,
       "profiles": [
         "full"
-      ]
+      ],
+      "_fingerprint": "Solo la config del linter, NO package.json. Hashear package.json entero salta con cualquier script nuevo — paso en la primera CI de este PR. Coste: un update que cambie el linter saldra como claves nuevas, no como INDETERMINADO; la senal llega igual y dice cuales."
     },
     {
       "name": "lint",

@@ -1,16 +1,20 @@
 {
   "_runner_version": 1,
   "dead-exports": {
-    "denominator": 151
+    "denominator": 151,
+    "rebaseline_reason": "fingerprint estrechado a eslint.config.js: hashear package.json daba falsa alarma con los scripts gates:*"
   },
   "eslint-estructural": {
     "denominator": 64,
-    "fingerprint": "c61405b8232bfb8d"
+    "fingerprint": "5f78d198e5e49f45",
+    "rebaseline_reason": "fingerprint estrechado a eslint.config.js: hashear package.json daba falsa alarma con los scripts gates:*"
   },
   "import-cycles": {
-    "denominator": 47
+    "denominator": 47,
+    "rebaseline_reason": "fingerprint estrechado a eslint.config.js: hashear package.json daba falsa alarma con los scripts gates:*"
   },
   "loc-500": {
-    "denominator": 47
+    "denominator": 47,
+    "rebaseline_reason": "fingerprint estrechado a eslint.config.js: hashear package.json daba falsa alarma con los scripts gates:*"
   }
 }
