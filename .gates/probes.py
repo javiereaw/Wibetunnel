@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-probes.py — sondas, extracción de claves y almacén del baseline.
+probes.py — sondas, almacén del baseline y frescura del runner.
+
+Cómo se ESCRIBE una clave (tramos, magnitud, versión de formato) vive en
+probes_keys.py y se reexporta desde aquí: quien la llama no tiene que saber en
+qué fichero cayó el corte.
 
 Compañero de gates.py. Separado para que ninguno de los dos pase de 500 LOC:
 la herramienta que hace cumplir ese límite no puede incumplirlo.
@@ -17,16 +21,23 @@ import os
 import re
 import subprocess
 
+# Import duro, sin try/except: a diferencia de probes_graph y probes_contract —
+# que degradan a "builtin desconocido" y dejan esa puerta INDETERMINADA— aqui un
+# fallback silencioso volveria a emitir claves sin tramo, o sea justo el agujero
+# que probes_keys cierra. Si falta, el runner tiene que romper, no medir de menos.
+from probes_keys import (bands_for, crossed, keyfmt_version,  # noqa: F401
+                         keys_from_output, stable_msgs)
+
 # Version del runner. Vive aqui, no en gates.py, para que este junto a la firma
 # que la acompaña: las dos se leen y se escriben en el mismo sitio.
-RUNNER_VERSION = 2
+RUNNER_VERSION = 3
 
-# Firma del runner: sha256 de los cinco ficheros, puesta por `gates.py --sign` en
+# Firma del runner: sha256 de RUNNER_FILES, puesta por `gates.py --sign` en
 # la fuente canonica y copiada verbatim a cada repo. Vacia = build sin firmar,
 # que es INDETERMINADO, nunca OK.
-RUNNER_DIGEST = "a77c32f2204575d6"
+RUNNER_DIGEST = "eaaea5023f8d830e"
 
-RUNNER_FILES = ("gates.py", "probes.py", "probes_graph.py",
+RUNNER_FILES = ("gates.py", "probes.py", "probes_keys.py", "probes_graph.py",
                 "probes_contract.py", "canaries.py")
 DIGEST_MARK = "RUNNER_DIGEST = "
 
@@ -98,14 +109,17 @@ def count_lines(path):
 
 
 def probe_loc(cfg, root):
-    """Ficheros que superan max_lines. Clave = ruta relativa."""
+    """Ficheros que superan max_lines. Clave = ruta :: tramo cruzado."""
     files = iter_files(root, cfg.get("include", []), cfg.get("exclude", []))
     limit = int(cfg.get("max_lines", 500))
+    bands = bands_for(cfg, limit)
     keys = []
     for rel in files:
         n = count_lines(os.path.join(root, rel))
-        if n is not None and n > limit:
-            keys.append(rel)
+        if n is None:
+            continue
+        for b in crossed(n, bands):
+            keys.append("%s :: >%d" % (rel, b))
     return sorted(keys), len(files)
 
 
@@ -184,58 +198,6 @@ try:
     BUILTINS.update(probes_contract.CONTRACT_BUILTINS)
 except ImportError:
     pass
-
-
-# ── Claves desde la salida de una herramienta ───────────────────────────────
-# Preferir SIEMPRE formatos máquina (json) sobre parsear prosa: la prosa cambia
-# el día que alguien reescribe un mensaje y nadie se entera.
-
-
-def _stable_msg(msg):
-    """Normaliza un mensaje de linter para usarlo como identidad.
-
-    Quita los numeros (complejidad 12 -> N, linea 34 -> N) y deja el resto: en
-    la practica eso conserva el NOMBRE de la funcion, que es lo que identifica
-    la violacion, y sobrevive a que el fichero se mueva de sitio.
-    """
-    return re.sub(r"\d+", "N", (msg or "").strip())
-
-
-def _rel(path, root):
-    try:
-        return os.path.relpath(path, root)
-    except Exception:
-        return path
-
-
-def keys_from_output(gate, stdout, root):
-    """La clave debe identificar UNA violacion, no un fichero.
-
-    Si la clave fuese `fichero:regla`, dos funciones complejas en el mismo
-    fichero colapsarian en una sola clave y podrias añadir la segunda sin que
-    el trinquete se enterase: fungible otra vez.
-    """
-    fmt = gate.get("keys_format", "lines")
-    if fmt == "lines":
-        keys = set(l.strip() for l in stdout.splitlines() if l.strip())
-        return sorted(keys), None
-    if fmt == "eslint-json":
-        data = json.loads(stdout)
-        keys = []
-        for f in data:
-            rel = _rel(f.get("filePath", "?"), root)
-            for m in f.get("messages", []):
-                keys.append("%s :: %s :: %s" % (
-                    rel, m.get("ruleId") or "?", _stable_msg(m.get("message"))))
-        return sorted(set(keys)), len(data)
-    if fmt == "ruff-json":
-        data = json.loads(stdout)
-        keys = ["%s :: %s :: %s" % (_rel(m.get("filename", "?"), root),
-                                    m.get("code", "?"),
-                                    _stable_msg(m.get("message")))
-                for m in data]
-        return sorted(set(keys)), None
-    raise ValueError("keys_format desconocido: %s" % fmt)
 
 
 # ── Fingerprint del tooling ─────────────────────────────────────────────────
@@ -338,7 +300,7 @@ def write_meta(root, meta):
 
 
 def runner_digest(gdir):
-    """sha256 de los cinco ficheros del runner. Levanta Indeterminado si falta uno.
+    """sha256 de RUNNER_FILES. Levanta Indeterminado si falta uno.
 
     La linea de la firma se excluye del calculo: un fichero no puede contener su
     propio hash. Se filtra en los tres, no solo en probes.py, para que mover la

@@ -1,2 +1,2 @@
 # trinquete: una clave por linea, ordenado. Solo puede encoger.
-lib/pty-store.js
+lib/pty-store.js :: >500

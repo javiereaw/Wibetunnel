@@ -75,6 +75,69 @@ def canary_loc(root, profile):
     return _veredicto(gate["name"], r["state"] == gates.VIOLACION, r.get("detail", ""))
 
 
+def canary_loc_growth(root, profile):
+    """Canario del tramo: un fichero que YA esta en el baseline y crece hasta
+    cruzar el tramo siguiente tiene que enrojecer.
+
+    Es EL fallo que los tramos vienen a cerrar, y el que canary_loc no ve:
+    canary_loc mete un fichero nuevo, y un fichero nuevo siempre da clave nueva.
+    Añadir a un fichero que ya incumple era el camino de menor resistencia y el
+    unico que no vigilaba nadie.
+
+    Se monta en un directorio aparte, no sobre el repo: reescribir un fichero
+    real de 700 lineas y restaurarlo deja el repo roto si el canario peta a
+    mitad. En el temporal se recrea solo la ruta elegida —con el tamaño real
+    medido en el repo de verdad— y un baseline minimo con las claves que ese
+    tamaño produce hoy. La meta se pasa a mano por lo mismo: el denominador y el
+    fingerprint del repo real no aplican a un arbol de un solo fichero.
+    """
+    import gates
+    gate = _pick(gates.load_manifest(root), profile, "loc")
+    if gate is None:
+        sys.stderr.write("No hay puerta 'loc' en el perfil %s: sin canario.\n" % profile)
+        return SKIPPED
+
+    base = probes.read_baseline(root, gate["name"]) or []
+    limit = int(gate.get("max_lines", 500))
+    bands = probes.bands_for(gate, limit)
+    elegido = None
+    for k in base:
+        rel = k.split(" :: ")[0]
+        n = probes.count_lines(os.path.join(root, rel))
+        if n is not None and n > limit:
+            elegido = (rel, n)
+            break
+    if elegido is None:
+        sys.stderr.write("Ningun fichero del baseline de '%s' existe y supera %s: "
+                         "sin canario de crecimiento.\n" % (gate["name"], limit))
+        return SKIPPED
+
+    rel, n = elegido
+    siguiente = next((b for b in probes.crossed(n * 1000, bands) if b > n), n * 2)
+    tmp = tempfile.mkdtemp(prefix="trinquete-canario-")
+    try:
+        destino = os.path.join(tmp, rel)
+        os.makedirs(os.path.dirname(destino) or tmp, exist_ok=True)
+        with open(destino, "w", encoding="utf-8") as fh:
+            for i in range(siguiente + 5):
+                fh.write("linea sintetica %d del canario de crecimiento\n" % i)
+        probes.write_baseline(tmp, gate["name"],
+                              ["%s :: >%d" % (rel, b) for b in probes.crossed(n, bands)])
+
+        print("  canario: %s ya en el baseline con %s lineas, crece a %s (tramo >%s)"
+              % (rel, n, siguiente + 5, siguiente))
+        meta = {gate["name"]: {"keyfmt": probes.keyfmt_version(gate)}}
+        r = gates.eval_ratchet(gate, tmp, meta, False)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    rojo = r["state"] == gates.VIOLACION
+    detail = r.get("detail", "")
+    if rojo:
+        detail = "%s :: %s" % (detail, ", ".join(r.get("nuevas", [])))
+    return _veredicto(gate["name"] + " (crecimiento)", rojo, detail)
+
+
 def _veredicto(name, rojo, detail):
     import gates
     if rojo:
@@ -115,7 +178,7 @@ def canary_contract(root, profile):
 def canary_freshness(root, profile):
     """Canario de frescura: una copia manipulada del runner debe enrojecer.
 
-    Copia los cinco ficheros a un directorio aparte y le añade un byte a uno.
+    Copia los ficheros del runner a un directorio aparte y le añade un byte a uno.
     Aparte y no in situ a proposito: tocar el runner que esta corriendo deja el
     repo sucio si el canario peta a mitad, y encima cambiaria el codigo que
     ejecuta la comprobacion mientras la ejecuta.
@@ -156,6 +219,7 @@ def canary_freshness(root, profile):
 
 def cmd_verify(root, profile):
     codes = [canary_loc(root, profile),
+             canary_loc_growth(root, profile),
              canary_contract(root, profile),
              canary_freshness(root, profile)]
     real = [c for c in codes if c != SKIPPED]

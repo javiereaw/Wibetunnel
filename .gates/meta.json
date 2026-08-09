@@ -1,22 +1,28 @@
 {
-  "_runner_version": 2,
-  "contrato-agentes": {},
+  "_runner_version": 3,
+  "contrato-agentes": {
+    "rebaseline_reason": "migracion a claves con tramo (runner v3): loc lleva el tramo cruzado y eslint conserva la magnitud"
+  },
   "dead-exports": {
     "denominator": 151,
-    "rebaseline_reason": "fingerprint estrechado a eslint.config.js: hashear package.json daba falsa alarma con los scripts gates:*"
+    "rebaseline_reason": "migracion a claves con tramo (runner v3): loc lleva el tramo cruzado y eslint conserva la magnitud"
   },
   "eslint-estructural": {
     "denominator": 64,
     "fingerprint": "5f78d198e5e49f45",
-    "rebaseline_reason": "fingerprint estrechado a eslint.config.js: hashear package.json daba falsa alarma con los scripts gates:*"
+    "keyfmt": 2,
+    "rebaseline_reason": "migracion a claves con tramo (runner v3): loc lleva el tramo cruzado y eslint conserva la magnitud"
   },
-  "frescura-runner": {},
+  "frescura-runner": {
+    "rebaseline_reason": "migracion a claves con tramo (runner v3): loc lleva el tramo cruzado y eslint conserva la magnitud"
+  },
   "import-cycles": {
     "denominator": 47,
-    "rebaseline_reason": "fingerprint estrechado a eslint.config.js: hashear package.json daba falsa alarma con los scripts gates:*"
+    "rebaseline_reason": "migracion a claves con tramo (runner v3): loc lleva el tramo cruzado y eslint conserva la magnitud"
   },
   "loc-500": {
     "denominator": 47,
-    "rebaseline_reason": "fingerprint estrechado a eslint.config.js: hashear package.json daba falsa alarma con los scripts gates:*"
+    "keyfmt": 2,
+    "rebaseline_reason": "migracion a claves con tramo (runner v3): loc lleva el tramo cruzado y eslint conserva la magnitud"
   }
 }

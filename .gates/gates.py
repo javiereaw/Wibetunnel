@@ -160,6 +160,34 @@ def _guard_denominator(denom, gmeta, allow_rebaseline):
     return None
 
 
+def _keyfmt_state(gate, gmeta):
+    """(estado, motivo) del FORMATO de clave. Estado: None | 'migrar' | 'roto'.
+
+    Un cambio de formato no puede llegar como "N claves nuevas". Cuando cambia
+    como se escribe una clave, cada vieja desaparece y cada nueva aparece de
+    golpe: el mismo conjunto de violaciones con otro nombre. Leido como
+    violacion, eso pone los cuatro repos en rojo a la vez con un mensaje que no
+    dice que hacer. Leido como bajada, congelaria un logro inexistente.
+    """
+    cur = probes.keyfmt_version(gate)
+    if cur <= 1:
+        return None, None
+    seen = gmeta.get("keyfmt", 1)
+    if seen == cur:
+        return None, None
+    if seen > cur:
+        return "roto", ("el baseline usa formato de clave v%s y esta copia del "
+                        "runner escribe v%s: es una copia mas vieja, actualizala"
+                        % (seen, cur))
+    return "migrar", ("el baseline esta en formato de clave v%s y este runner "
+                      "escribe v%s (las claves ahora llevan TRAMO: `ruta :: >500`, "
+                      "`... [>10]`). No es una violacion: es el mismo conjunto de "
+                      "violaciones escrito de otra forma, y ninguna clave vieja "
+                      "puede compararse con una nueva. Migra una sola vez con: "
+                      "gates.py --rebaseline --reason \"migracion a claves con "
+                      "tramo (runner v%s)\"" % (seen, cur, RUNNER_VERSION))
+
+
 def eval_ratchet(gate, root, meta, allow_rebaseline, first_run=False):
     name = gate["name"]
     keys, denom, bad = _gather_keys(gate, root)
@@ -181,6 +209,25 @@ def eval_ratchet(gate, root, meta, allow_rebaseline, first_run=False):
 
     common = {"keys": keys, "denominator": denom, "fingerprint": fp}
     base = probes.read_baseline(root, name)
+    # Despues de leer el baseline y solo si lo hay: sin baseline no hay formato
+    # viejo que migrar, y el mensaje util ahi es el de `--baseline`.
+    if base is not None:
+        estado, motivo = _keyfmt_state(gate, gmeta)
+        if estado and not allow_rebaseline:
+            d = dict(common)
+            d.update({"state": INDETERMINADO, "detail": motivo})
+            return d
+        if estado == "migrar":
+            # Con --rebaseline la migracion se ejecuta, pero NO se diffea contra
+            # el baseline viejo: seria comparar claves que no son comparables y
+            # sacar "N claves nuevas" en rojo sobre un cambio que no ha empeorado
+            # nada. Se reescribe y se dice cuanto, que es lo unico verificable.
+            d = dict(common)
+            d.update({"state": OK, "migrado": True,
+                      "detail": "formato de clave migrado: %s clave(s) escritas "
+                                "(el baseline anterior tenia %s en el formato "
+                                "viejo; no son comparables)" % (len(keys), len(base))})
+            return d
     if base is None:
         d = dict(common)
         if first_run:
@@ -263,6 +310,9 @@ def _persist(gate, r, root, meta, write_mode, allow_rebaseline, reason):
         gm["denominator"] = r["denominator"]
     if r.get("fingerprint") is not None:
         gm["fingerprint"] = r["fingerprint"]
+    kf = probes.keyfmt_version(gate)
+    if kf > 1:
+        gm["keyfmt"] = kf
     if allow_rebaseline and reason:
         gm["rebaseline_reason"] = reason
 

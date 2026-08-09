@@ -90,7 +90,7 @@
       "name": "frescura-runner",
       "type": "ratchet",
       "builtin": "runner_freshness",
-      "min_version": 2,
+      "min_version": 3,
       "profiles": [
         "fast",
         "ci",
@@ -104,6 +104,7 @@
       "type": "ratchet",
       "builtin": "agent_contract",
       "profiles": [
+        "fast",
         "ci",
         "full"
       ],
@@ -154,7 +155,8 @@
       "_nota": "La unica puerta que mira el DIFF y no el arbol, asi que es la unica que ve las cuatro formas de bajar el numero sin arreglar nada: borrar lineas del baseline a mano, anadir globs al exclude, subir un umbral y meter eslint-disable.",
       "_regla_innegociable": ".gates/ prohibido a todo agente menos al jardinero. Es la unica regla que no se negocia: sin ella un agente puede editar su propia puerta y el trinquete no vale nada.",
       "_conservadurismo": "Se declara la flota entera aunque hoy solo corran aqui dos jobs (wibetunnel-log-review y wibetunnel-jardinero): un agente que nunca aparece no cuesta nada, y el dia que se enchufe ya llega con la regla puesta. NO se prohibe .github/workflows/**: este repo tiene CI sana con lint, unit y E2E de Playwright, y tocar ese workflow es trabajo legitimo. Tampoco se declaran artifact_roots: acotar donde escribe cada agente exige conocer su alcance real, y hoy no se conoce.",
-      "_perfil": "Fuera de 'fast': cuesta 0,64 s de los que ~0,58 s son la llamada 'gh repo view' que resuelve la rama por defecto (aqui, master). Offline ese gh se come su timeout de 20 s antes de caer al fallback, y un hook que tarda 20 s se desactiva solo."
+      "_perfil": "DENTRO de 'fast' desde el runner v3. Antes estaba fuera y con razon: costaba 0,65 s de los que 0,58 s eran la llamada 'gh repo view' que resolvia la rama por defecto, y offline —un pre-push en el tren— ese gh se comia su timeout de 20 s antes de caer a origin/main; un hook que tarda 20 s se desactiva solo. El v3 invierte el orden: refs locales primero y gh solo para desempatar cuando lo local no decide (cero candidatos, o main y master a la vez). Medido: _resolve_base 0,60 s -> 0,014 s y la puerta entera 0,65 s -> 0,05 s, sin tocar la red. Y un git hook no hereda el PATH de la shell, asi que ahi gh puede ni existir: depender de el para el caso normal era ademas fragil.",
+      "_perfil_antes": "Fuera de 'fast': cuesta 0,64 s de los que ~0,58 s son la llamada 'gh repo view' que resuelve la rama por defecto (aqui, master). Offline ese gh se come su timeout de 20 s antes de caer al fallback, y un hook que tarda 20 s se desactiva solo."
     },
     {
       "name": "lint",
