@@ -30,15 +30,16 @@ from probes_keys import (bands_for, crossed, keyfmt_version,  # noqa: F401
 
 # Version del runner. Vive aqui, no en gates.py, para que este junto a la firma
 # que la acompaña: las dos se leen y se escriben en el mismo sitio.
-RUNNER_VERSION = 6
+RUNNER_VERSION = 7
 
 # Firma del runner: sha256 de RUNNER_FILES, puesta por `gates.py --sign` en
 # la fuente canonica y copiada verbatim a cada repo. Vacia = build sin firmar,
 # que es INDETERMINADO, nunca OK.
-RUNNER_DIGEST = "cc93555838161cfb"
+RUNNER_DIGEST = "57a59c4c6834fcca"
 
 RUNNER_FILES = ("gates.py", "gates_eval.py", "probes.py", "probes_keys.py",
-                "probes_graph.py", "probes_contract.py", "canaries.py")
+                "probes_graph.py", "probes_contract.py", "canaries.py",
+                "canaries_repo.py")
 DIGEST_MARK = "RUNNER_DIGEST = "
 
 

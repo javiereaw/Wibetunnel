@@ -28,10 +28,22 @@ Dos formas de reconciliar, y NO son intercambiables:
                         cambiar la config para dejar de medir ruido— sin abrir
                         la puerta a todo lo demás.
 
-Tres perfiles, por dónde corre cada puerta:
+Perfiles, por dónde corre cada puerta. Son cadenas libres, no un enum: el
+manifiesto de cada repo declara los suyos, y un perfil que no existe sale
+INDETERMINADO ("ninguna puerta declara el perfil X"), nunca un verde vacío.
+Los tres del camino del commit:
     fast   solo python3 stdlib            pre-push (un hook no tiene pnpm en el PATH)
     ci     fast + ratchets que usan pnpm  CI, cuando las binarias ya son pasos propios
     full   todo, incluidas las binarias   shell interactiva
+
+Y uno que NO va en ese camino:
+    temporal   puertas que se disparan solas, por el paso del tiempo y no por un
+               commit. Van en un CRON. Toda la vigilancia de este runner era
+               atómica, estática y DISPARADA POR UN CAMBIO — y los incidentes
+               reales del parque no fueron de esa forma: el cron caído que solo
+               escribía en su log, la analítica que dejó de cargar, la factura
+               de Gemini. Ningún agente disparaba esas puertas porque no hay
+               diff que mirar.
 
 'ci' existe porque un workflow que ya corre `test`/`lint`/`typecheck` como pasos
 con nombre propio no debe correrlos otra vez dentro del runner: es tiempo
@@ -279,7 +291,13 @@ def cmd_sign(root):
 
 def main():
     ap = argparse.ArgumentParser(description="Runner de puertas con trinquete")
-    ap.add_argument("--profile", default="full", choices=["fast", "ci", "full"])
+    # Sin `choices`: los perfiles los declara el manifiesto de cada repo, no
+    # este fichero. Un nombre inventado no cuela igualmente --- run_all sale
+    # INDETERMINADO si ninguna puerta lo declara, que es mas estricto que el
+    # enum: el enum dejaba pasar `--profile ci` en un repo donde ci no existia
+    # (paso en quant-smallcap) y ese si salia 0 sin mirar nada.
+    ap.add_argument("--profile", default="full",
+                    help="fast | ci | full | temporal | el que declare el manifiesto")
     ap.add_argument("--baseline", action="store_true", help="escribe el baseline inicial")
     ap.add_argument("--rebaseline", action="store_true",
                     help="acepta bajada grande o cambio de tooling")

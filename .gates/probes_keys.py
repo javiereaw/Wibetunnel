@@ -190,7 +190,49 @@ def keys_from_output(gate, stdout, root):
                                     m.get("code", "?"), s)
                 for m in data for s in stable_msgs(m.get("message"))]
         return _with_counts(keys), None
+    if fmt == "osv-json":
+        return _osv_keys(json.loads(stdout), root)
     raise ValueError("keys_format desconocido: %s" % fmt)
+
+
+def _osv_keys(data, root):
+    """Salida de `osv-scanner --format=json --all-packages`.
+
+    Clave = `<lockfile> :: <ecosistema>/<paquete> :: <OSV-ID>`. Las tres piezas
+    estan elegidas por lo que pasa cuando cambian:
+
+    - El LOCKFILE va dentro porque un monorepo tiene varios (vivezgz tiene el de
+      la raiz y el de video/) y la misma vulnerabilidad en los dos son dos
+      deudas distintas que se arreglan por separado.
+    - La VERSION del paquete NO va. Subir una version sin salir del rango
+      afectado sigue siendo vulnerable, y con la version dentro eso llegaria
+      como "una clave ida y una nueva" — o sea rojo por un upgrade parcial que
+      no ha empeorado nada.
+    - La SEVERIDAD NO va. El CVSS se revisa (NVD reanaliza), y una revision
+      moveria la clave sin que cambie ni la dependencia ni el aviso: rojo
+      falso mas una bajada fantasma en la misma pasada.
+
+    El denominador son los paquetes escaneados, no los vulnerables: por eso hace
+    falta `--all-packages`. Sin el, un repo limpio devuelve `results: []`, que
+    es indistinguible de "no encontre ningun lockfile" — y ese es justo el verde
+    que no ha mirado nada que el denominador existe para cazar.
+
+    No pasa por _with_counts: la pareja (paquete, OSV-ID) ya es unica dentro de
+    un lockfile, asi que aqui no hay claves repetidas que colapsen.
+    """
+    keys = []
+    paquetes = 0
+    for res in data.get("results", []):
+        src = _rel(res.get("source", {}).get("path", "?"), root)
+        for pk in res.get("packages", []):
+            paquetes += 1
+            info = pk.get("package", {})
+            eco = info.get("ecosystem", "?")
+            nombre = info.get("name", "?")
+            for grupo in pk.get("groups", []):
+                for vid in grupo.get("ids", []):
+                    keys.append("%s :: %s/%s :: %s" % (src, eco, nombre, vid))
+    return sorted(set(keys)), paquetes
 
 
 # ── Version del formato de clave ────────────────────────────────────────────

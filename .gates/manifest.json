@@ -93,7 +93,7 @@
       "name": "frescura-runner",
       "type": "ratchet",
       "builtin": "runner_freshness",
-      "min_version": 6,
+      "min_version": 7,
       "_min_version": "Sube CON el runner, no despues. Quedarse en 4 con el runner en 5 no abre un agujero —el downgrade lo cazan igual meta.json (_runner_version 5 > 4) y el chequeo de keyfmt (baseline en v3, un runner v4 escribiria v2)— pero deja la pata de 'expectativa declarada' sin comparar contra nada, que es exactamente lo que este campo existe para no permitir. Se quedo desfasado en los cuatro repos al pasar a v5 y se corrigio en el mismo commit.",
       "profiles": [
         "fast",
@@ -181,6 +181,28 @@
       "profiles": [
         "full"
       ]
+    },
+    {
+      "name": "vulns-dependencias",
+      "type": "ratchet",
+      "keys_cmd": "osv-scanner scan source -r . --format=json --all-packages",
+      "keys_format": "osv-json",
+      "keys_exit_ok": [
+        0,
+        1
+      ],
+      "timeout": 300,
+      "profiles": [
+        "ci",
+        "full",
+        "temporal"
+      ],
+      "_nota": "La primera puerta TEMPORAL del parque: las demas se disparan porque alguien toco codigo, y esta se dispara sola porque el mundo publica un aviso nuevo. Por eso corre tambien en cron y no solo en CI --- el conteo sube sin que nadie haga un commit, y ningun agente la disparaba porque no hay diff que mirar.",
+      "_por_que_osv": "osv-scanner y no `npm audit`/`pnpm audit`: audit solo consulta la base de npm, asi que en un repo con dependencias de PyPI no ve nada, y en npm se queda con lo que GitHub ha revisado. OSV agrega GHSA, PYSEC, CVE y las bases de cada ecosistema, y el mismo binario vale para los tres repos.",
+      "_denominador": "`--all-packages` no es cosmetico: sin el, un repo limpio devuelve `results: []`, que es indistinguible de 'no encontre ningun lockfile'. Con el, el denominador son los paquetes escaneados y un 0 sale INDETERMINADO. Wibetunnel esta hoy a 0 vulnerabilidades sobre 166 paquetes: sin denominador ese verde no valdria nada.",
+      "_fuera_de_fast": "No entra en 'fast' por dos motivos: consulta api.osv.dev por red --- un pre-push no debe depender de que un tercero responda --- y el binario no tiene por que estar en el PATH de un hook. Si falta, osv-scanner sale 127 y la puerta es INDETERMINADO, que es lo correcto: no es 'cero vulnerabilidades'.",
+      "_que_hacer_en_rojo": "Rojo aqui casi nunca es culpa del commit: lo normal es que haya salido un aviso nuevo para una dependencia que ya estaba. Dos salidas, y --rebaseline NO es ninguna de las dos. (1) Subir la dependencia: la clave desaparece y el trinquete baja. (2) Si no hay version arreglada, `osv-scanner.toml` con `[[IgnoredVulns]]`, `id`, `reason` y un `ignoreUntil` corto: la clave desaparece del baseline hoy y VUELVE el dia que caduca, o sea que el aviso se re-arma solo. Un --rebaseline de rutina aqui mata la puerta, que es justo lo que dice el SKILL.",
+      "_clave": "`<lockfile> :: <ecosistema>/<paquete> :: <OSV-ID>`. Sin version del paquete (subir dentro del rango afectado sigue siendo vulnerable, y con la version dentro eso llegaria como una clave ida mas una nueva: rojo por un upgrade parcial) y sin severidad (el CVSS se revisa, y una revision moveria la clave sin que cambie ni la dependencia ni el aviso)."
     }
   ]
 }

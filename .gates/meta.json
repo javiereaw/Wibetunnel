@@ -1,5 +1,5 @@
 {
-  "_runner_version": 6,
+  "_runner_version": 7,
   "contrato-agentes": {
     "rebaseline_reason": "tramo de conteo (runner v5): las claves repetidas en un fichero dejan de colapsar"
   },
@@ -24,5 +24,8 @@
     "denominator": 47,
     "keyfmt": 2,
     "rebaseline_reason": "tramo de conteo (runner v5): las claves repetidas en un fichero dejan de colapsar"
+  },
+  "vulns-dependencias": {
+    "denominator": 166
   }
 }
