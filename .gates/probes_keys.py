@@ -122,12 +122,53 @@ def _rel(path, root):
         return path
 
 
+# ── Tramo de conteo ─────────────────────────────────────────────────────────
+# Los tramos de arriba solo salvan a las reglas que declaran una MEDIDA contra
+# un maximo ("complexity of 40. Maximum allowed is 10"). Para las que no
+# declaran ninguna --- no-empty, no-empty-function, no-floating-promises,
+# no-explicit-any, BLE001, S110 --- el mensaje es identico en cada ocurrencia,
+# asi que N violaciones en un fichero colapsan en UNA clave. Es exactamente el
+# agujero que el docstring de keys_from_output dice haber cerrado, y para estas
+# reglas seguia abierto.
+#
+# Medido en vivezgz el 09-08-2026: 233 de 1.000 violaciones reales eran
+# invisibles. Demostrado con dos `.catch(() => {})` nuevos metidos en una
+# funcion existente de un fichero que ya tenia la clave: eslint reportaba 4
+# violaciones y la puerta seguia en verde con las 767 de siempre. O sea que el
+# antipatron que justifica meter no-empty-function entraba sin tocar nada, en
+# los 14 ficheros que ya tenian una.
+#
+# La segunda ocurrencia añade la clave `[x>1]`, la tercera `[x>2]`, etc.
+# ACUMULATIVO por el mismo motivo que los tramos de LOC: si 4 ocurrencias
+# dieran solo `[x>3]`, bajar a 2 produciria `[x>1]`, que no esta en el
+# baseline, y ARREGLAR deuda saldria en rojo. Asi crecer solo añade claves y
+# encoger solo las quita.
+#
+# La escalera se reusa de bands_for con limite 1 --- 1,2,3,4,6,8,12,16 --- y
+# crossed la dobla sola por arriba. La primera ocurrencia no añade nada, que es
+# lo que mantiene la clave base intacta y hace legible el diff del baseline.
+COUNT_BANDS = bands_for({}, 1)
+
+
+def _with_counts(pairs):
+    """Añade el tramo de conteo a claves repetidas. `pairs` es iterable de str."""
+    n = {}
+    for k in pairs:
+        n[k] = n.get(k, 0) + 1
+    out = []
+    for k, c in n.items():
+        out.append(k)
+        out.extend("%s [x>%d]" % (k, b) for b in crossed(c, COUNT_BANDS))
+    return sorted(set(out))
+
+
 def keys_from_output(gate, stdout, root):
     """La clave debe identificar UNA violacion, no un fichero.
 
     Si la clave fuese `fichero:regla`, dos funciones complejas en el mismo
     fichero colapsarian en una sola clave y podrias añadir la segunda sin que
-    el trinquete se enterase: fungible otra vez.
+    el trinquete se enterase: fungible otra vez. Para las reglas SIN medida
+    declarada eso pasaba igual, y lo cierra el tramo de conteo de _with_counts.
     """
     fmt = gate.get("keys_format", "lines")
     if fmt == "lines":
@@ -142,13 +183,13 @@ def keys_from_output(gate, stdout, root):
                 rule = m.get("ruleId") or "?"
                 for s in stable_msgs(m.get("message")):
                     keys.append("%s :: %s :: %s" % (rel, rule, s))
-        return sorted(set(keys)), len(data)
+        return _with_counts(keys), len(data)
     if fmt == "ruff-json":
         data = json.loads(stdout)
         keys = ["%s :: %s :: %s" % (_rel(m.get("filename", "?"), root),
                                     m.get("code", "?"), s)
                 for m in data for s in stable_msgs(m.get("message"))]
-        return sorted(set(keys)), None
+        return _with_counts(keys), None
     raise ValueError("keys_format desconocido: %s" % fmt)
 
 
@@ -161,7 +202,12 @@ def keys_from_output(gate, stdout, root):
 # compara antes de mirar el baseline. Solo se declara aqui lo que YA ha cambiado
 # de formato: la v1 no se comprueba nunca, porque ningun repo la tiene escrita y
 # el chequeo saltaria en todas las puertas del parque sin nada que migrar.
-KEYFMT = {"loc": 2, "eslint-json": 2, "ruff-json": 2}
+# v3 (09-08-2026): eslint-json y ruff-json llevan tramo de conteo. 'loc' se
+# queda en v2 --- probe_loc emite sus propias claves y ya iba con tramo cruzado,
+# asi que no cambia --- y 'lines' sigue sin version: es el formato generico, sus
+# claves son lineas crudas de una herramienta cualquiera y ahi repetir no
+# significa "otra violacion mas" de forma fiable.
+KEYFMT = {"loc": 2, "eslint-json": 3, "ruff-json": 3}
 
 
 def keyfmt_version(gate):

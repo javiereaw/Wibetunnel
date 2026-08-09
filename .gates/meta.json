@@ -1,28 +1,28 @@
 {
-  "_runner_version": 4,
+  "_runner_version": 5,
   "contrato-agentes": {
-    "rebaseline_reason": "Dos reglas nuevas de errores silenciados en eslint.config.js: no-empty con allowEmptyCatch:false y no-empty-function. Cambia el fingerprint del tooling, no baja el numero."
+    "rebaseline_reason": "tramo de conteo (runner v5): las claves repetidas en un fichero dejan de colapsar"
   },
   "dead-exports": {
     "denominator": 151,
-    "rebaseline_reason": "Dos reglas nuevas de errores silenciados en eslint.config.js: no-empty con allowEmptyCatch:false y no-empty-function. Cambia el fingerprint del tooling, no baja el numero."
+    "rebaseline_reason": "tramo de conteo (runner v5): las claves repetidas en un fichero dejan de colapsar"
   },
   "eslint-estructural": {
     "denominator": 64,
     "fingerprint": "0087fd66a0dfa764",
-    "keyfmt": 2,
-    "rebaseline_reason": "Dos reglas nuevas de errores silenciados en eslint.config.js: no-empty con allowEmptyCatch:false y no-empty-function. Cambia el fingerprint del tooling, no baja el numero."
+    "keyfmt": 3,
+    "rebaseline_reason": "tramo de conteo (runner v5): las claves repetidas en un fichero dejan de colapsar"
   },
   "frescura-runner": {
-    "rebaseline_reason": "Dos reglas nuevas de errores silenciados en eslint.config.js: no-empty con allowEmptyCatch:false y no-empty-function. Cambia el fingerprint del tooling, no baja el numero."
+    "rebaseline_reason": "tramo de conteo (runner v5): las claves repetidas en un fichero dejan de colapsar"
   },
   "import-cycles": {
     "denominator": 47,
-    "rebaseline_reason": "Dos reglas nuevas de errores silenciados en eslint.config.js: no-empty con allowEmptyCatch:false y no-empty-function. Cambia el fingerprint del tooling, no baja el numero."
+    "rebaseline_reason": "tramo de conteo (runner v5): las claves repetidas en un fichero dejan de colapsar"
   },
   "loc-500": {
     "denominator": 47,
     "keyfmt": 2,
-    "rebaseline_reason": "Dos reglas nuevas de errores silenciados en eslint.config.js: no-empty con allowEmptyCatch:false y no-empty-function. Cambia el fingerprint del tooling, no baja el numero."
+    "rebaseline_reason": "tramo de conteo (runner v5): las claves repetidas en un fichero dejan de colapsar"
   }
 }

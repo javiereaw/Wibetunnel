@@ -179,13 +179,25 @@ def _keyfmt_state(gate, gmeta):
         return "roto", ("el baseline usa formato de clave v%s y esta copia del "
                         "runner escribe v%s: es una copia mas vieja, actualizala"
                         % (seen, cur))
+    # El "que ha cambiado" se cuenta por version porque las dos migraciones no
+    # son iguales, y decir lo mismo de ambas engaña. En la v2 las claves viejas
+    # dejan de existir: es el mismo conjunto de violaciones con otro nombre y el
+    # baseline no cambia de tamaño. En la v3 la clave base se queda igual y solo
+    # se AÑADEN claves `[x>N]`, asi que el baseline CRECE --- y crece justo por
+    # las violaciones que hasta ahora eran invisibles, no por deuda nueva.
+    if cur >= 3:
+        que = ("las claves repetidas en un mismo fichero llevan TRAMO DE CONTEO "
+               "(`... [x>1]`, `[x>2]`). La clave base no cambia: solo se añaden "
+               "las de repeticion, asi que el baseline CRECE, y lo que aparece "
+               "son violaciones que ya estaban y la clave colapsada ocultaba")
+    else:
+        que = ("las claves llevan TRAMO (`ruta :: >500`, `... [>10]`). Es el "
+               "mismo conjunto de violaciones escrito de otra forma, y ninguna "
+               "clave vieja puede compararse con una nueva")
     return "migrar", ("el baseline esta en formato de clave v%s y este runner "
-                      "escribe v%s (las claves ahora llevan TRAMO: `ruta :: >500`, "
-                      "`... [>10]`). No es una violacion: es el mismo conjunto de "
-                      "violaciones escrito de otra forma, y ninguna clave vieja "
-                      "puede compararse con una nueva. Migra una sola vez con: "
-                      "gates.py --rebaseline --reason \"migracion a claves con "
-                      "tramo (runner v%s)\"" % (seen, cur, RUNNER_VERSION))
+                      "escribe v%s: %s. No es una violacion. Migra una sola vez "
+                      "con: gates.py --rebaseline --reason \"migracion a claves "
+                      "con tramo (runner v%s)\"" % (seen, cur, que, RUNNER_VERSION))
 
 
 def eval_ratchet(gate, root, meta, allow_rebaseline, first_run=False):

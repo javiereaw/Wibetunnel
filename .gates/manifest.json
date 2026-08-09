@@ -86,13 +86,15 @@
       "_nota": "No entra en 'fast' porque necesita npx, que no existe en el PATH de un hook. SI entra en 'ci': es el unico ratchet que ningun paso del workflow duplica —el paso 'Lint' solo mira errores— asi que sacarla de CI la dejaba viva solo en local.",
       "_silenciado": "Desde el 09-08-2026 congela tambien no-empty (con allowEmptyCatch:false) y no-empty-function: +13 claves, de 76 a 89. Ojo al punto de partida: no-empty estaba en 'error' pero con allowEmptyCatch TRUE, o sea que el catch vacio era legal POR ESCRITO. Van juntas: no-empty mira BLOQUES vacios y `p.catch(() => {})` es una FUNCION vacia, asi que sin no-empty-function la salida barata queda abierta. 4,4 s medidos, ruido frente al resto.",
       "_no_hay_floating_promises": "Este repo es JavaScript sin tsconfig y no-floating-promises necesita el checker de TypeScript. La promesa suelta se queda SIN vigilar aqui; no es un olvido, es lo que hay. Cerrarlo exigiria checkJS + jsconfig.json y el parser de typescript-eslint: cambio de tooling, no de configuracion.",
-      "_fingerprint": "Solo la config del linter, NO package.json. Hashear package.json entero salta con cualquier script nuevo — paso en la primera CI de este PR. Coste: un update que cambie el linter saldra como claves nuevas, no como INDETERMINADO; la senal llega igual y dice cuales."
+      "_fingerprint": "Solo la config del linter, NO package.json. Hashear package.json entero salta con cualquier script nuevo — paso en la primera CI de este PR. Coste: un update que cambie el linter saldra como claves nuevas, no como INDETERMINADO; la senal llega igual y dice cuales.",
+      "_tramo_conteo": "El tramo de conteo (runner v5) NO hace visible cada violacion nueva: la hace visible al CRUZAR tramo. La escalera es 1,2,3,4,6,8,12,16 y luego dobla, asi que en un grupo (fichero+regla+mensaje) que ya va por 5, la sexta no enrojece; la quinta si, porque cruza el 4. Es el mismo compromiso que los tramos de LOC y esta elegido a proposito: clave por ocurrencia exacta haria que arreglar una sola violacion cambiase el resto de claves. Medido en vivezgz el 09-08-2026: antes de v5 eran invisibles 233 de 1.000 violaciones reales; ahora quedan 15 grupos de 767 (2%) en conteos fuera de la escalera. EFECTO PRACTICO para el jardinero: arreglar 1 de 6 no mueve el numero, y eso NO significa que no haya servido — hay que bajar hasta cruzar el tramo para verlo."
     },
     {
       "name": "frescura-runner",
       "type": "ratchet",
       "builtin": "runner_freshness",
-      "min_version": 4,
+      "min_version": 5,
+      "_min_version": "Sube CON el runner, no despues. Quedarse en 4 con el runner en 5 no abre un agujero —el downgrade lo cazan igual meta.json (_runner_version 5 > 4) y el chequeo de keyfmt (baseline en v3, un runner v4 escribiria v2)— pero deja la pata de 'expectativa declarada' sin comparar contra nada, que es exactamente lo que este campo existe para no permitir. Se quedo desfasado en los cuatro repos al pasar a v5 y se corrigio en el mismo commit.",
       "profiles": [
         "fast",
         "ci",
