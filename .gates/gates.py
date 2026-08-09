@@ -15,6 +15,19 @@ INDETERMINADO existe porque el exit code no sirve de señal de salud: hay
 validadores que salen 1 funcionando bien y otros que salen 0 siempre. Confundir
 "petó" con "cero violaciones" congelaría un baseline falso.
 
+Dos formas de reconciliar, y NO son intercambiables:
+
+    --rebaseline        global y sin condiciones. Reescribe TODAS las puertas
+                        del perfil, y escribe baseline incluso desde un estado
+                        VIOLACION: sale rojo una vez y a la siguiente pasada la
+                        deuda nueva está congelada en verde. Es el martillo.
+    --acepta-config P   solo la puerta P, y solo el fingerprint. La bajada la
+                        sigue juzgando el trinquete: una sola clave nueva es
+                        VIOLACION y una bajada desproporcionada es
+                        INDETERMINADO. Es para el caso real y frecuente —
+                        cambiar la config para dejar de medir ruido— sin abrir
+                        la puerta a todo lo demás.
+
 Tres perfiles, por dónde corre cada puerta:
     fast   solo python3 stdlib            pre-push (un hook no tiene pnpm en el PATH)
     ci     fast + ratchets que usan pnpm  CI, cuando las binarias ya son pasos propios
@@ -33,6 +46,7 @@ Uso:
     gates.py --profile ci                 ratchets sin puertas binarias
     gates.py --baseline                   escribe el baseline inicial
     gates.py --rebaseline --reason "..."  acepta bajada grande o cambio de tooling
+    gates.py --acepta-config P --reason   acepta config nueva en la puerta P si NO trae claves nuevas
     gates.py --verify                     canario: demuestra que la puerta bloquea
     gates.py --sign                       firma el runner (solo en la canonica)
     gates.py --status                     salida JSON
@@ -49,20 +63,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import canaries  # noqa: E402
 import probes  # noqa: E402
 
-OK = "OK"
-VIOLACION = "VIOLACION"
-INDETERMINADO = "INDETERMINADO"
+# Reexportados desde gates_eval para que `gates.OK` siga existiendo: canaries.py
+# y cualquier consumidor externo los leen de aqui.
+from gates_eval import (DROP_LIMIT, DROP_MIN_KEYS, INDETERMINADO,  # noqa: F401,E402
+                        OK, VIOLACION, eval_binary, eval_ratchet)
 
 # Una sola definicion, en probes.py, junto a la firma que la acompaña.
 RUNNER_VERSION = probes.RUNNER_VERSION
-
-# Una bajada sospechosamente grande exige --rebaseline: puede venir de un
-# directorio borrado, un glob nuevo en el ignore o un linter que analizo la
-# mitad. Pero el porcentaje solo no sirve: con un baseline de 1, bajar a 0 es un
-# 100% y es exactamente el resultado que se busca. Hacen falta LAS DOS
-# condiciones — porcentaje alto Y una cantidad absoluta que de verdad sorprenda.
-DROP_LIMIT = 0.20
-DROP_MIN_KEYS = 5
 
 IS_TTY = sys.stdout.isatty()
 
@@ -97,187 +104,6 @@ def repo_root():
     except Exception:
         pass
     return os.getcwd()
-
-
-# ── Evaluación ──────────────────────────────────────────────────────────────
-
-
-def eval_binary(gate, root):
-    exp = int(gate.get("expected_exit", 0))
-    code, so, se, bad = probes.run_cmd(gate["cmd"], root, gate.get("timeout", 300))
-    if bad:
-        return {"state": INDETERMINADO, "detail": bad}
-    if code == exp:
-        return {"state": OK, "detail": "exit %s" % code}
-    # 12 lineas, no 3: con 3 no se puede diagnosticar nada. Un pytest que falla
-    # al recolectar imprime la lista de modulos que no importan, y con tres
-    # lineas solo se ve el resumen final ("9 errors during collection"), que no
-    # dice cual. Pasó de verdad diagnosticando la CI de quant-smallcap.
-    tail = (se or so).strip().splitlines()
-    return {"state": VIOLACION,
-            "detail": "exit %s (esperado %s)" % (code, exp),
-            "output": tail[-12:] if tail else []}
-
-
-def _gather_keys(gate, root):
-    """Devuelve (keys, denom, motivo_indeterminado)."""
-    if "builtin" in gate:
-        fn = probes.BUILTINS.get(gate["builtin"])
-        if fn is None:
-            return None, None, "builtin desconocido: %s" % gate["builtin"]
-        try:
-            keys, denom = fn(gate, root)
-        except probes.Indeterminado as e:
-            # "No he podido mirar" no es un fallo de la sonda: es el tercer
-            # estado, y lleva su propio motivo. No lo disfraces de crash.
-            return None, None, str(e)
-        except Exception as e:
-            return None, None, "sonda fallo: %s" % e
-        return keys, denom, None
-
-    code, so, _se, bad = probes.run_cmd(gate["keys_cmd"], root, gate.get("timeout", 300))
-    if bad:
-        return None, None, bad
-    allowed = gate.get("keys_exit_ok", [0, 1])
-    if code not in allowed:
-        return None, None, "exit %s no esperado (ok: %s)" % (code, allowed)
-    try:
-        keys, denom = probes.keys_from_output(gate, so, root)
-    except Exception as e:
-        return None, None, "salida ilegible: %s" % e
-    return keys, denom, None
-
-
-def _guard_denominator(denom, gmeta, allow_rebaseline):
-    if denom is None:
-        return None
-    if denom == 0:
-        return "0 ficheros escaneados — glob roto o dependencias sin instalar"
-    prev = gmeta.get("denominator")
-    if prev is not None and denom < prev and not allow_rebaseline:
-        return ("el denominador cayo de %s a %s — posible exclusion nueva; "
-                "usa --rebaseline --reason si es legitimo" % (prev, denom))
-    return None
-
-
-def _keyfmt_state(gate, gmeta):
-    """(estado, motivo) del FORMATO de clave. Estado: None | 'migrar' | 'roto'.
-
-    Un cambio de formato no puede llegar como "N claves nuevas". Cuando cambia
-    como se escribe una clave, cada vieja desaparece y cada nueva aparece de
-    golpe: el mismo conjunto de violaciones con otro nombre. Leido como
-    violacion, eso pone los cuatro repos en rojo a la vez con un mensaje que no
-    dice que hacer. Leido como bajada, congelaria un logro inexistente.
-    """
-    cur = probes.keyfmt_version(gate)
-    if cur <= 1:
-        return None, None
-    seen = gmeta.get("keyfmt", 1)
-    if seen == cur:
-        return None, None
-    if seen > cur:
-        return "roto", ("el baseline usa formato de clave v%s y esta copia del "
-                        "runner escribe v%s: es una copia mas vieja, actualizala"
-                        % (seen, cur))
-    # El "que ha cambiado" se cuenta por version porque las dos migraciones no
-    # son iguales, y decir lo mismo de ambas engaña. En la v2 las claves viejas
-    # dejan de existir: es el mismo conjunto de violaciones con otro nombre y el
-    # baseline no cambia de tamaño. En la v3 la clave base se queda igual y solo
-    # se AÑADEN claves `[x>N]`, asi que el baseline CRECE --- y crece justo por
-    # las violaciones que hasta ahora eran invisibles, no por deuda nueva.
-    if cur >= 3:
-        que = ("las claves repetidas en un mismo fichero llevan TRAMO DE CONTEO "
-               "(`... [x>1]`, `[x>2]`). La clave base no cambia: solo se añaden "
-               "las de repeticion, asi que el baseline CRECE, y lo que aparece "
-               "son violaciones que ya estaban y la clave colapsada ocultaba")
-    else:
-        que = ("las claves llevan TRAMO (`ruta :: >500`, `... [>10]`). Es el "
-               "mismo conjunto de violaciones escrito de otra forma, y ninguna "
-               "clave vieja puede compararse con una nueva")
-    return "migrar", ("el baseline esta en formato de clave v%s y este runner "
-                      "escribe v%s: %s. No es una violacion. Migra una sola vez "
-                      "con: gates.py --rebaseline --reason \"migracion a claves "
-                      "con tramo (runner v%s)\"" % (seen, cur, que, RUNNER_VERSION))
-
-
-def eval_ratchet(gate, root, meta, allow_rebaseline, first_run=False):
-    name = gate["name"]
-    keys, denom, bad = _gather_keys(gate, root)
-    if bad:
-        return {"state": INDETERMINADO, "detail": bad}
-
-    gmeta = meta.get(name, {})
-    bad = _guard_denominator(denom, gmeta, allow_rebaseline)
-    if bad:
-        return {"state": INDETERMINADO, "detail": bad}
-
-    fp = probes.fingerprint(gate, root)
-    if fp is not None:
-        prev_fp = gmeta.get("fingerprint")
-        if prev_fp is not None and prev_fp != fp and not allow_rebaseline:
-            return {"state": INDETERMINADO,
-                    "detail": "cambio la config/version del tooling (%s -> %s); "
-                              "usa --rebaseline --reason" % (prev_fp, fp)}
-
-    common = {"keys": keys, "denominator": denom, "fingerprint": fp}
-    base = probes.read_baseline(root, name)
-    # Despues de leer el baseline y solo si lo hay: sin baseline no hay formato
-    # viejo que migrar, y el mensaje util ahi es el de `--baseline`.
-    if base is not None:
-        estado, motivo = _keyfmt_state(gate, gmeta)
-        if estado and not allow_rebaseline:
-            d = dict(common)
-            d.update({"state": INDETERMINADO, "detail": motivo})
-            return d
-        if estado == "migrar":
-            # Con --rebaseline la migracion se ejecuta, pero NO se diffea contra
-            # el baseline viejo: seria comparar claves que no son comparables y
-            # sacar "N claves nuevas" en rojo sobre un cambio que no ha empeorado
-            # nada. Se reescribe y se dice cuanto, que es lo unico verificable.
-            d = dict(common)
-            d.update({"state": OK, "migrado": True,
-                      "detail": "formato de clave migrado: %s clave(s) escritas "
-                                "(el baseline anterior tenia %s en el formato "
-                                "viejo; no son comparables)" % (len(keys), len(base))})
-            return d
-    if base is None:
-        d = dict(common)
-        if first_run:
-            # `--baseline`: congelar el estado actual es exactamente lo que se pide.
-            d.update({"state": OK,
-                      "detail": "baseline inicial: %s clave(s) congeladas de %s ficheros"
-                                % (len(keys), denom if denom is not None else "?")})
-        else:
-            d.update({"state": INDETERMINADO,
-                      "detail": "sin baseline — corre `gates.py --baseline` la primera vez"})
-        return d
-
-    baseset, keyset = set(base), set(keys)
-    nuevas = sorted(keyset - baseset)
-    idas = sorted(baseset - keyset)
-
-    if nuevas:
-        d = dict(common)
-        d.update({"state": VIOLACION, "nuevas": nuevas,
-                  "detail": "%s clave(s) nueva(s) sobre un baseline de %s"
-                            % (len(nuevas), len(base))})
-        return d
-
-    res = dict(common)
-    res.update({"state": OK, "detail": "%s (baseline %s)" % (len(keys), len(base))})
-    if idas:
-        drop = float(len(idas)) / max(len(base), 1)
-        sospechosa = drop > DROP_LIMIT and len(idas) >= DROP_MIN_KEYS
-        if sospechosa and not allow_rebaseline:
-            res["state"] = INDETERMINADO
-            res["detail"] = ("bajada del %.0f%% (%s claves) — demasiado grande para "
-                             "aceptarla sola; usa --rebaseline --reason"
-                             % (drop * 100, len(idas)))
-            return res
-        res["ratchet"] = idas
-        res["detail"] = "%s (baseline %s -> %s, el trinquete baja)" % (
-            len(keys), len(base), len(keys))
-    return res
 
 
 # ── Orquestación ────────────────────────────────────────────────────────────
@@ -317,7 +143,12 @@ def _persist(gate, r, root, meta, write_mode, allow_rebaseline, reason):
     # cambiado: si no, un --rebaseline reconcilia solo las puertas que ademas
     # bajaron, y las otras se quedan con el denominador o el fingerprint viejo
     # y vuelven a salir INDETERMINADO en la siguiente pasada.
-    if not (write_mode or allow_rebaseline or r.get("ratchet")):
+    # `config_aceptada` solo vale desde OK. Nunca se limpia sola en VIOLACION
+    # (eval_ratchet la quita de ese resultado), pero el estado se comprueba aqui
+    # tambien: es justo el fallo que tiene --rebaseline —escribir baseline desde
+    # un estado VIOLACION, congelando la deuda nueva— y no se replica.
+    config_ok = r.get("config_aceptada") and r["state"] == OK
+    if not (write_mode or allow_rebaseline or config_ok or r.get("ratchet")):
         return
     if r.get("keys") is None:
         return
@@ -332,9 +163,12 @@ def _persist(gate, r, root, meta, write_mode, allow_rebaseline, reason):
         gm["keyfmt"] = kf
     if allow_rebaseline and reason:
         gm["rebaseline_reason"] = reason
+    if config_ok and reason:
+        gm["config_reason"] = reason
 
 
-def run_all(root, profile, write_mode, allow_rebaseline, reason):
+def run_all(root, profile, write_mode, allow_rebaseline, reason,
+            acepta_config=()):
     manifest = load_manifest(root)
     meta = probes.read_meta(root)
     results = []
@@ -352,12 +186,26 @@ def run_all(root, profile, write_mode, allow_rebaseline, reason):
                                   "no se ha comprobado NADA" % profile})
         return results, 2
 
+    # Un nombre mal escrito en --acepta-config no puede pasar en silencio: el
+    # runner saldria 2 por el fingerprint que se pretendia aceptar y el mensaje
+    # hablaria de otra cosa. Lo mismo si la puerta existe pero no corre en este
+    # perfil: se estaria aceptando un cambio en algo que no se ha medido.
+    corren = set(g["name"] for g in gates)
+    huerfanas = sorted(set(acepta_config) - corren)
+    if huerfanas:
+        results.append({"name": "acepta-config", "type": "meta",
+                        "state": INDETERMINADO, "secs": 0.0,
+                        "detail": "--acepta-config nombra puerta(s) que no corren "
+                                  "en el perfil '%s': %s" % (profile, ", ".join(huerfanas))})
+        return results, 2
+
     for g in gates:
         t0 = time.time()
         if g["type"] == "binary":
             r = eval_binary(g, root)
         elif g["type"] == "ratchet":
-            r = eval_ratchet(g, root, meta, allow_rebaseline, first_run=write_mode)
+            r = eval_ratchet(g, root, meta, allow_rebaseline,
+                             first_run=write_mode, acepta_config=acepta_config)
         else:
             r = {"state": INDETERMINADO, "detail": "tipo desconocido: %s" % g["type"]}
         r["name"] = g["name"]
@@ -435,7 +283,13 @@ def main():
     ap.add_argument("--baseline", action="store_true", help="escribe el baseline inicial")
     ap.add_argument("--rebaseline", action="store_true",
                     help="acepta bajada grande o cambio de tooling")
-    ap.add_argument("--reason", default="", help="motivo obligatorio con --rebaseline")
+    ap.add_argument("--acepta-config", action="append", default=[],
+                    metavar="PUERTA", dest="acepta_config",
+                    help="acepta el fingerprint nuevo de esa puerta si el "
+                         "conjunto de claves es subconjunto del baseline "
+                         "(repetible o separado por comas)")
+    ap.add_argument("--reason", default="",
+                    help="motivo obligatorio con --rebaseline y --acepta-config")
     ap.add_argument("--verify", action="store_true", help="canario")
     ap.add_argument("--sign", action="store_true",
                     help="firma el runner (solo en la fuente canonica)")
@@ -450,12 +304,19 @@ def main():
     if args.verify:
         sys.exit(canaries.cmd_verify(root, args.profile))
 
+    acepta = set()
+    for item in args.acepta_config:
+        acepta.update(p.strip() for p in item.split(",") if p.strip())
+
     if args.rebaseline and not args.reason:
         sys.stderr.write('--rebaseline exige --reason "...": queda escrito en meta.json\n')
         sys.exit(2)
+    if acepta and not args.reason:
+        sys.stderr.write('--acepta-config exige --reason "...": queda escrito en meta.json\n')
+        sys.exit(2)
 
     results, worst = run_all(root, args.profile, args.baseline,
-                             args.rebaseline, args.reason)
+                             args.rebaseline, args.reason, acepta)
 
     try:
         stamp = {"when": int(time.time()), "profile": args.profile,

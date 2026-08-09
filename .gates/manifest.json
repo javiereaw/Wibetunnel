@@ -93,7 +93,7 @@
       "name": "frescura-runner",
       "type": "ratchet",
       "builtin": "runner_freshness",
-      "min_version": 5,
+      "min_version": 6,
       "_min_version": "Sube CON el runner, no despues. Quedarse en 4 con el runner en 5 no abre un agujero —el downgrade lo cazan igual meta.json (_runner_version 5 > 4) y el chequeo de keyfmt (baseline en v3, un runner v4 escribiria v2)— pero deja la pata de 'expectativa declarada' sin comparar contra nada, que es exactamente lo que este campo existe para no permitir. Se quedo desfasado en los cuatro repos al pasar a v5 y se corrigio en el mismo commit.",
       "profiles": [
         "fast",

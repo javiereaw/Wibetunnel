@@ -139,6 +139,72 @@ def canary_loc_growth(root, profile):
     return _veredicto(gate["name"] + " (crecimiento)", rojo, detail)
 
 
+def _canario_config_arbol(tmp, lineas_extra):
+    """Arbol minimo: una config, un fichero que ya incumple y otro nuevo.
+
+    Se monta sintetico y no sobre el repo porque lo que se prueba es la LOGICA
+    del runner —el corte por subconjunto— y no la configuracion de este repo en
+    concreto. Asi el canario corre igual en un repo de python que en uno de TS,
+    y no depende de que exista una puerta con `fingerprint_files`.
+    """
+    with open(os.path.join(tmp, "config.txt"), "w", encoding="utf-8") as fh:
+        fh.write("config NUEVA: el fingerprint no es el del baseline\n")
+    with open(os.path.join(tmp, "viejo.txt"), "w", encoding="utf-8") as fh:
+        fh.write("x\n" * 20)
+    for i, n in enumerate(lineas_extra):
+        with open(os.path.join(tmp, "nuevo%d.txt" % i), "w", encoding="utf-8") as fh:
+            fh.write("x\n" * n)
+
+
+def canary_config_shrink(root, profile):
+    """Canario de --acepta-config: aceptar la config NO acepta deuda nueva.
+
+    La primitiva existe para el caso legitimo —cambiar la config para dejar de
+    medir ruido, y que el baseline encoja sin pasar por --rebaseline, que es
+    global y ademas escribe desde VIOLACION—. Su unica garantia es el corte por
+    subconjunto, y una garantia sin canario es una suposicion.
+
+    Se comprueban las DOS mitades, porque una sola no dice nada: que con el
+    fingerprint cambiado y cero claves nuevas la puerta acepte y baje, y que con
+    el fingerprint cambiado y UNA clave nueva la puerta enrojezca igual. Si solo
+    se probara la primera, un `return OK` incondicional pasaria el canario.
+    """
+    import gates
+    gate = {"name": "canario-config", "type": "ratchet", "builtin": "loc",
+            "include": ["*.txt"], "exclude": [], "max_lines": 10,
+            "bands": [10, 20, 40], "fingerprint_files": ["config.txt"]}
+    base = ["viejo.txt :: >10", "viejo.txt :: >20", "sobrante.txt :: >10"]
+    meta = {"canario-config": {"fingerprint": "0000000000000000",
+                               "keyfmt": probes.keyfmt_version(gate)}}
+
+    tmp = tempfile.mkdtemp(prefix="trinquete-canario-config-")
+    try:
+        # Mitad 1: subconjunto estricto (sobrante.txt ya no existe) -> debe bajar.
+        _canario_config_arbol(tmp, [])
+        probes.write_baseline(tmp, gate["name"], base)
+        encoge = gates.eval_ratchet(gate, tmp, dict(meta), False,
+                                    acepta_config={"canario-config"})
+        # Mitad 2: mismo cambio de config, pero ademas una clave NUEVA.
+        _canario_config_arbol(tmp, [15])
+        probes.write_baseline(tmp, gate["name"], base)
+        cuela = gates.eval_ratchet(gate, tmp, dict(meta), False,
+                                   acepta_config={"canario-config"})
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    print("  canario: config nueva, mismo baseline. Sin clave nueva -> %s; "
+          "con clave nueva -> %s" % (encoge["state"], cuela["state"]))
+    bajo = encoge["state"] == gates.OK and encoge.get("ratchet")
+    if not bajo:
+        return _veredicto("acepta-config (encogimiento)", False,
+                          "con 0 claves nuevas deberia haber bajado y salio %s: %s"
+                          % (encoge["state"], encoge.get("detail", "")))
+    rojo = cuela["state"] == gates.VIOLACION
+    return _veredicto("acepta-config (deuda nueva)", rojo,
+                      "%s :: %s" % (cuela.get("detail", ""),
+                                    ", ".join(cuela.get("nuevas", []))))
+
+
 def _veredicto(name, rojo, detail):
     import gates
     if rojo:
@@ -396,6 +462,7 @@ def _stubs(sb, gate, rutas, marca):
 def cmd_verify(root, profile):
     codes = [canary_loc(root, profile),
              canary_loc_growth(root, profile),
+             canary_config_shrink(root, profile),
              canary_contract(root, profile),
              canary_freshness(root, profile),
              canary_agent_wiring(root, profile)]
