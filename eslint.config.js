@@ -7,6 +7,17 @@ const relaxed = {
   'no-unused-vars': ['error', { args: 'none', caughtErrors: 'none', varsIgnorePattern: '^_' }],
 };
 
+// Reglas estructurales. Van como 'warn' a proposito: hoy hay 44 funciones por
+// encima de complexity 10, asi que en 'error' romperian el lint el primer dia.
+// Quien impide que suban es la puerta 'eslint-estructural' del trinquete
+// (.gates/manifest.json): congela las actuales y bloquea cualquier clave nueva.
+const estructurales = {
+  complexity: ['warn', 10],
+  'max-depth': ['warn', 4],
+  'max-params': ['warn', 5],
+  'max-nested-callbacks': ['warn', 3],
+};
+
 module.exports = [
   { ignores: ['node_modules/**', 'public/vendor/**'] },
   {
@@ -18,7 +29,7 @@ module.exports = [
       sourceType: 'commonjs',
       globals: globals.node,
     },
-    rules: { ...js.configs.recommended.rules, ...relaxed },
+    rules: { ...js.configs.recommended.rules, ...relaxed, ...estructurales },
   },
   {
     // Tests E2E: CommonJS sobre Node, pero con closures que Playwright evalua
@@ -44,6 +55,6 @@ module.exports = [
         io: 'readonly',
       },
     },
-    rules: { ...js.configs.recommended.rules, ...relaxed },
+    rules: { ...js.configs.recommended.rules, ...relaxed, ...estructurales },
   },
 ];

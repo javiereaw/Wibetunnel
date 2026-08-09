@@ -1,0 +1,22 @@
+# trinquete: una clave por linea, ordenado. Solo puede encoger.
+public/js/claude/chrome.js :: toggleSearch
+public/js/claude/editor.js :: closeEditor
+public/js/claude/editor.js :: isDirty
+public/js/claude/editor.js :: isEditorOpen
+public/js/claude/files.js :: closeFiles
+public/js/claude/files.js :: currentDir
+public/js/claude/files.js :: isFilesOpen
+public/js/claude/render/card.js :: isCardOpen
+public/js/claude/render/decorate.js :: copyText
+public/js/claude/render/index.js :: isNearBottom
+public/js/claude/render/search.js :: makeCounter
+public/js/claude/render/tools.js :: TOOL_ICON
+public/js/filebrowser.js :: closeFileBrowser
+public/js/sessions.js :: setupSessionUI
+public/js/settings.js :: applyFontFamily
+public/js/settings.js :: closeSettings
+public/js/settings.js :: openSettings
+public/js/settings.js :: renderShortcuts
+public/js/state.js :: NOTIF_IDLE_MS
+public/js/state.js :: outputTimers
+public/js/theme.js :: getSystemTheme

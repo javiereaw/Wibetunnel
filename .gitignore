@@ -6,3 +6,7 @@ start.bat
 .claude/
 CLAUDE.md
 wibetunnel.apk
+
+# trinquete
+.gates/last-run.json
+.gates/__pycache__/

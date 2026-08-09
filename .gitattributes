@@ -1,0 +1,2 @@
+# trinquete: el baseline es un conjunto; union es la fusion correcta
+.gates/baseline/*.txt merge=union

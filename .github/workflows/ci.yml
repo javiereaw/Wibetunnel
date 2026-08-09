@@ -10,7 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # fetch-depth: 0 — el trinquete compara el baseline contra el histórico.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -25,6 +28,22 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+      # Puertas con trinquete: el baseline solo puede bajar. Un fichero >500 LOC
+      # o un ciclo de importación nuevo tumban el job. Va antes del E2E porque
+      # es instantáneo y el E2E tarda minutos.
+      #
+      # Perfil 'ci', no 'full': el perfil full incluye dos puertas binarias
+      # —`npm run lint` y `npm test`— que este mismo job ya corre arriba como
+      # pasos con nombre propio. Repetirlas es tiempo tirado y atribuye peor el
+      # fallo: en rojo se leía "Puertas (trinquete)" en vez de "Unit tests".
+      #
+      # Y 'ci' en vez de 'fast' porque fast se llevaba por delante
+      # `eslint-estructural`, el único ratchet que ningún paso duplica: el paso
+      # "Lint" solo mira errores. En fast esa puerta quedaba viva solo en
+      # local. 'ci' = todos los ratchets, ninguna binaria.
+      - name: Puertas (trinquete)
+        run: python3 .gates/gates.py --profile ci
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
