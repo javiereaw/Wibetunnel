@@ -15,6 +15,7 @@ Todo stdlib, sintaxis <=3.9.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -205,7 +206,7 @@ def canary_config_shrink(root, profile):
                                     ", ".join(cuela.get("nuevas", []))))
 
 
-_CANARIO_LOCK = """{
+_CANARIO_NPM = """{
   "name": "canario-osv", "version": "1.0.0", "lockfileVersion": 3, "requires": true,
   "packages": {
     "": {"name": "canario-osv", "version": "1.0.0", "dependencies": {"lodash": "4.17.20"}},
@@ -215,19 +216,44 @@ _CANARIO_LOCK = """{
 }
 """
 
+# pyyaml 5.3.1: PYSEC-2021-142 y GHSA-8q59-q68h-6hv4, de 2020-2021.
+_CANARIO_PIP = "pyyaml==5.3.1\n"
+
+
+def _canario_objetivos(gate):
+    """Dónde escribir el fichero saboteado y con qué contenido.
+
+    Se deduce del `keys_cmd` de la puerta REAL y no de una constante, porque
+    los repos no la invocan igual: los de npm escanean recursivamente y los de
+    python apuntan a sus locks con `--lockfile 'parser:ruta'`. Escribir siempre
+    un package-lock.json dejaba al canario de quant-smallcap sin nada que
+    medir --- salia INDETERMINADO, o sea sin demostrar nada, que es mejor que
+    un verde falso pero sigue siendo una puerta sin canario.
+    """
+    cmd = gate.get("keys_cmd", "")
+    objetivos = []
+    for m in re.finditer(r"--lockfile[= ]+['\"]?([\w.-]+):([^'\" ]+)", cmd):
+        parser, ruta = m.group(1), m.group(2)
+        contenido = _CANARIO_PIP if "requirements" in parser else _CANARIO_NPM
+        objetivos.append((os.path.basename(ruta), contenido))
+    if not objetivos:
+        # Escaneo recursivo: vale cualquier lockfile que sepa leer.
+        objetivos.append(("package-lock.json", _CANARIO_NPM))
+    return objetivos
+
 
 def canary_osv(root, profile):
     """Canario de la puerta de vulnerabilidades: una dependencia con CVE conocido
     tiene que enrojecer.
 
-    lodash 4.17.20 y no una version inventada: esta en OSV desde 2021 con cinco
-    avisos —GHSA-35jh-r3h4-6jhm entre ellos, inyeccion de comandos— y no va a
-    dejar de estarlo. Un canario que dependa de un aviso reciente caduca solo.
+    lodash 4.17.20 y pyyaml 5.3.1, no versiones inventadas: llevan en OSV desde
+    2020-2021 y no van a dejar de estarlo. Un canario que dependa de un aviso
+    reciente caduca solo.
 
-    Corre sobre un arbol temporal con baseline vacio, asi que cualquier hallazgo
-    es clave nueva. Si el escaner no esta o la API de OSV no responde, la puerta
-    sale INDETERMINADO y aqui se dice: un canario que no ha podido medir no es
-    un canario verde.
+    Corre sobre un arbol temporal con baseline vacio, asi que cualquier
+    hallazgo es clave nueva. Si el escaner no esta o la API de OSV no responde,
+    la puerta sale INDETERMINADO y aqui se devuelve 2: un canario que no ha
+    podido medir NO es un canario verde.
     """
     import gates
     gate = None
@@ -239,12 +265,15 @@ def canary_osv(root, profile):
         sys.stderr.write("No hay puerta 'osv-json' en el perfil %s: sin canario.\n" % profile)
         return SKIPPED
 
+    objetivos = _canario_objetivos(gate)
     tmp = tempfile.mkdtemp(prefix="trinquete-canario-osv-")
     try:
-        with open(os.path.join(tmp, "package-lock.json"), "w", encoding="utf-8") as fh:
-            fh.write(_CANARIO_LOCK)
+        for nombre, contenido in objetivos:
+            with open(os.path.join(tmp, nombre), "w", encoding="utf-8") as fh:
+                fh.write(contenido)
         probes.write_baseline(tmp, gate["name"], [])
-        print("  canario: package-lock.json con lodash 4.17.20 (5 avisos en OSV)")
+        print("  canario: %s con dependencia vulnerable conocida"
+              % ", ".join(n for n, _ in objetivos))
         r = gates.eval_ratchet(gate, tmp, {}, False)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

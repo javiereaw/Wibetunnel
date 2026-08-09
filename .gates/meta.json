@@ -1,5 +1,5 @@
 {
-  "_runner_version": 7,
+  "_runner_version": 8,
   "contrato-agentes": {
     "rebaseline_reason": "tramo de conteo (runner v5): las claves repetidas en un fichero dejan de colapsar"
   },
