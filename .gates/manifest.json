@@ -84,6 +84,8 @@
         "full"
       ],
       "_nota": "No entra en 'fast' porque necesita npx, que no existe en el PATH de un hook. SI entra en 'ci': es el unico ratchet que ningun paso del workflow duplica —el paso 'Lint' solo mira errores— asi que sacarla de CI la dejaba viva solo en local.",
+      "_silenciado": "Desde el 09-08-2026 congela tambien no-empty (con allowEmptyCatch:false) y no-empty-function: +13 claves, de 76 a 89. Ojo al punto de partida: no-empty estaba en 'error' pero con allowEmptyCatch TRUE, o sea que el catch vacio era legal POR ESCRITO. Van juntas: no-empty mira BLOQUES vacios y `p.catch(() => {})` es una FUNCION vacia, asi que sin no-empty-function la salida barata queda abierta. 4,4 s medidos, ruido frente al resto.",
+      "_no_hay_floating_promises": "Este repo es JavaScript sin tsconfig y no-floating-promises necesita el checker de TypeScript. La promesa suelta se queda SIN vigilar aqui; no es un olvido, es lo que hay. Cerrarlo exigiria checkJS + jsconfig.json y el parser de typescript-eslint: cambio de tooling, no de configuracion.",
       "_fingerprint": "Solo la config del linter, NO package.json. Hashear package.json entero salta con cualquier script nuevo — paso en la primera CI de este PR. Coste: un update que cambie el linter saldra como claves nuevas, no como INDETERMINADO; la senal llega igual y dice cuales."
     },
     {

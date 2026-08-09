@@ -1,28 +1,28 @@
 {
   "_runner_version": 4,
   "contrato-agentes": {
-    "rebaseline_reason": "migracion a claves con tramo (runner v3): loc lleva el tramo cruzado y eslint conserva la magnitud"
+    "rebaseline_reason": "Dos reglas nuevas de errores silenciados en eslint.config.js: no-empty con allowEmptyCatch:false y no-empty-function. Cambia el fingerprint del tooling, no baja el numero."
   },
   "dead-exports": {
     "denominator": 151,
-    "rebaseline_reason": "migracion a claves con tramo (runner v3): loc lleva el tramo cruzado y eslint conserva la magnitud"
+    "rebaseline_reason": "Dos reglas nuevas de errores silenciados en eslint.config.js: no-empty con allowEmptyCatch:false y no-empty-function. Cambia el fingerprint del tooling, no baja el numero."
   },
   "eslint-estructural": {
     "denominator": 64,
-    "fingerprint": "5f78d198e5e49f45",
+    "fingerprint": "0087fd66a0dfa764",
     "keyfmt": 2,
-    "rebaseline_reason": "migracion a claves con tramo (runner v3): loc lleva el tramo cruzado y eslint conserva la magnitud"
+    "rebaseline_reason": "Dos reglas nuevas de errores silenciados en eslint.config.js: no-empty con allowEmptyCatch:false y no-empty-function. Cambia el fingerprint del tooling, no baja el numero."
   },
   "frescura-runner": {
-    "rebaseline_reason": "migracion a claves con tramo (runner v3): loc lleva el tramo cruzado y eslint conserva la magnitud"
+    "rebaseline_reason": "Dos reglas nuevas de errores silenciados en eslint.config.js: no-empty con allowEmptyCatch:false y no-empty-function. Cambia el fingerprint del tooling, no baja el numero."
   },
   "import-cycles": {
     "denominator": 47,
-    "rebaseline_reason": "migracion a claves con tramo (runner v3): loc lleva el tramo cruzado y eslint conserva la magnitud"
+    "rebaseline_reason": "Dos reglas nuevas de errores silenciados en eslint.config.js: no-empty con allowEmptyCatch:false y no-empty-function. Cambia el fingerprint del tooling, no baja el numero."
   },
   "loc-500": {
     "denominator": 47,
     "keyfmt": 2,
-    "rebaseline_reason": "migracion a claves con tramo (runner v3): loc lleva el tramo cruzado y eslint conserva la magnitud"
+    "rebaseline_reason": "Dos reglas nuevas de errores silenciados en eslint.config.js: no-empty con allowEmptyCatch:false y no-empty-function. Cambia el fingerprint del tooling, no baja el numero."
   }
 }
