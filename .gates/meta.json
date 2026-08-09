@@ -1,5 +1,5 @@
 {
-  "_runner_version": 3,
+  "_runner_version": 4,
   "contrato-agentes": {
     "rebaseline_reason": "migracion a claves con tramo (runner v3): loc lleva el tramo cruzado y eslint conserva la magnitud"
   },

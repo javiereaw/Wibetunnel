@@ -90,7 +90,7 @@
       "name": "frescura-runner",
       "type": "ratchet",
       "builtin": "runner_freshness",
-      "min_version": 3,
+      "min_version": 4,
       "profiles": [
         "fast",
         "ci",

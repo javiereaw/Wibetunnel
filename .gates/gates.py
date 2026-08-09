@@ -285,6 +285,11 @@ def select_gates(manifest, profile):
     for g in manifest.get("gates", []):
         if g.get("exempt"):
             continue
+        # Los canarios se declaran en el mismo manifiesto pero NO son puertas:
+        # solo corren con --verify. Sin este filtro saldrian como "tipo
+        # desconocido" —o sea INDETERMINADO— en cada pasada normal.
+        if g.get("type") == "canary":
+            continue
         # El default cubre las puertas viejas del manifiesto que no declaran
         # 'profiles': son ratchets baratos, luego entran tambien en 'ci'.
         if profile in g.get("profiles", ["fast", "ci", "full"]):
