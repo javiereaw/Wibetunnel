@@ -84,13 +84,17 @@
         "full"
       ],
       "_nota": "No entra en 'fast' porque necesita npx, que no existe en el PATH de un hook. SI entra en 'ci': es el unico ratchet que ningun paso del workflow duplica —el paso 'Lint' solo mira errores— asi que sacarla de CI la dejaba viva solo en local.",
-      "_fingerprint": "Solo la config del linter, NO package.json. Hashear package.json entero salta con cualquier script nuevo — paso en la primera CI de este PR. Coste: un update que cambie el linter saldra como claves nuevas, no como INDETERMINADO; la senal llega igual y dice cuales."
+      "_silenciado": "Desde el 09-08-2026 congela tambien no-empty (con allowEmptyCatch:false) y no-empty-function: +13 claves, de 76 a 89. Ojo al punto de partida: no-empty estaba en 'error' pero con allowEmptyCatch TRUE, o sea que el catch vacio era legal POR ESCRITO. Van juntas: no-empty mira BLOQUES vacios y `p.catch(() => {})` es una FUNCION vacia, asi que sin no-empty-function la salida barata queda abierta. 4,4 s medidos, ruido frente al resto.",
+      "_no_hay_floating_promises": "Este repo es JavaScript sin tsconfig y no-floating-promises necesita el checker de TypeScript. La promesa suelta se queda SIN vigilar aqui; no es un olvido, es lo que hay. Cerrarlo exigiria checkJS + jsconfig.json y el parser de typescript-eslint: cambio de tooling, no de configuracion.",
+      "_fingerprint": "Solo la config del linter, NO package.json. Hashear package.json entero salta con cualquier script nuevo — paso en la primera CI de este PR. Coste: un update que cambie el linter saldra como claves nuevas, no como INDETERMINADO; la senal llega igual y dice cuales.",
+      "_tramo_conteo": "El tramo de conteo (runner v5) NO hace visible cada violacion nueva: la hace visible al CRUZAR tramo. La escalera es 1,2,3,4,6,8,12,16 y luego dobla, asi que en un grupo (fichero+regla+mensaje) que ya va por 5, la sexta no enrojece; la quinta si, porque cruza el 4. Es el mismo compromiso que los tramos de LOC y esta elegido a proposito: clave por ocurrencia exacta haria que arreglar una sola violacion cambiase el resto de claves. Medido en vivezgz el 09-08-2026: antes de v5 eran invisibles 233 de 1.000 violaciones reales; ahora quedan 15 grupos de 767 (2%) en conteos fuera de la escalera. EFECTO PRACTICO para el jardinero: arreglar 1 de 6 no mueve el numero, y eso NO significa que no haya servido — hay que bajar hasta cruzar el tramo para verlo."
     },
     {
       "name": "frescura-runner",
       "type": "ratchet",
       "builtin": "runner_freshness",
-      "min_version": 2,
+      "min_version": 8,
+      "_min_version": "Sube CON el runner, no despues. Quedarse en 4 con el runner en 5 no abre un agujero —el downgrade lo cazan igual meta.json (_runner_version 5 > 4) y el chequeo de keyfmt (baseline en v3, un runner v4 escribiria v2)— pero deja la pata de 'expectativa declarada' sin comparar contra nada, que es exactamente lo que este campo existe para no permitir. Se quedo desfasado en los cuatro repos al pasar a v5 y se corrigio en el mismo commit.",
       "profiles": [
         "fast",
         "ci",
@@ -104,6 +108,7 @@
       "type": "ratchet",
       "builtin": "agent_contract",
       "profiles": [
+        "fast",
         "ci",
         "full"
       ],
@@ -154,7 +159,8 @@
       "_nota": "La unica puerta que mira el DIFF y no el arbol, asi que es la unica que ve las cuatro formas de bajar el numero sin arreglar nada: borrar lineas del baseline a mano, anadir globs al exclude, subir un umbral y meter eslint-disable.",
       "_regla_innegociable": ".gates/ prohibido a todo agente menos al jardinero. Es la unica regla que no se negocia: sin ella un agente puede editar su propia puerta y el trinquete no vale nada.",
       "_conservadurismo": "Se declara la flota entera aunque hoy solo corran aqui dos jobs (wibetunnel-log-review y wibetunnel-jardinero): un agente que nunca aparece no cuesta nada, y el dia que se enchufe ya llega con la regla puesta. NO se prohibe .github/workflows/**: este repo tiene CI sana con lint, unit y E2E de Playwright, y tocar ese workflow es trabajo legitimo. Tampoco se declaran artifact_roots: acotar donde escribe cada agente exige conocer su alcance real, y hoy no se conoce.",
-      "_perfil": "Fuera de 'fast': cuesta 0,64 s de los que ~0,58 s son la llamada 'gh repo view' que resuelve la rama por defecto (aqui, master). Offline ese gh se come su timeout de 20 s antes de caer al fallback, y un hook que tarda 20 s se desactiva solo."
+      "_perfil": "DENTRO de 'fast' desde el runner v3. Antes estaba fuera y con razon: costaba 0,65 s de los que 0,58 s eran la llamada 'gh repo view' que resolvia la rama por defecto, y offline —un pre-push en el tren— ese gh se comia su timeout de 20 s antes de caer a origin/main; un hook que tarda 20 s se desactiva solo. El v3 invierte el orden: refs locales primero y gh solo para desempatar cuando lo local no decide (cero candidatos, o main y master a la vez). Medido: _resolve_base 0,60 s -> 0,014 s y la puerta entera 0,65 s -> 0,05 s, sin tocar la red. Y un git hook no hereda el PATH de la shell, asi que ahi gh puede ni existir: depender de el para el caso normal era ademas fragil.",
+      "_perfil_antes": "Fuera de 'fast': cuesta 0,64 s de los que ~0,58 s son la llamada 'gh repo view' que resuelve la rama por defecto (aqui, master). Offline ese gh se come su timeout de 20 s antes de caer al fallback, y un hook que tarda 20 s se desactiva solo."
     },
     {
       "name": "lint",
@@ -175,6 +181,28 @@
       "profiles": [
         "full"
       ]
+    },
+    {
+      "name": "vulns-dependencias",
+      "type": "ratchet",
+      "keys_cmd": "osv-scanner scan source -r . --format=json --all-packages",
+      "keys_format": "osv-json",
+      "keys_exit_ok": [
+        0,
+        1
+      ],
+      "timeout": 300,
+      "profiles": [
+        "ci",
+        "full",
+        "temporal"
+      ],
+      "_nota": "La primera puerta TEMPORAL del parque: las demas se disparan porque alguien toco codigo, y esta se dispara sola porque el mundo publica un aviso nuevo. Por eso corre tambien en cron y no solo en CI --- el conteo sube sin que nadie haga un commit, y ningun agente la disparaba porque no hay diff que mirar.",
+      "_por_que_osv": "osv-scanner y no `npm audit`/`pnpm audit`: audit solo consulta la base de npm, asi que en un repo con dependencias de PyPI no ve nada, y en npm se queda con lo que GitHub ha revisado. OSV agrega GHSA, PYSEC, CVE y las bases de cada ecosistema, y el mismo binario vale para los tres repos.",
+      "_denominador": "`--all-packages` no es cosmetico: sin el, un repo limpio devuelve `results: []`, que es indistinguible de 'no encontre ningun lockfile'. Con el, el denominador son los paquetes escaneados y un 0 sale INDETERMINADO. Wibetunnel esta hoy a 0 vulnerabilidades sobre 166 paquetes: sin denominador ese verde no valdria nada.",
+      "_fuera_de_fast": "No entra en 'fast' por dos motivos: consulta api.osv.dev por red --- un pre-push no debe depender de que un tercero responda --- y el binario no tiene por que estar en el PATH de un hook. Si falta, osv-scanner sale 127 y la puerta es INDETERMINADO, que es lo correcto: no es 'cero vulnerabilidades'.",
+      "_que_hacer_en_rojo": "Rojo aqui casi nunca es culpa del commit: lo normal es que haya salido un aviso nuevo para una dependencia que ya estaba. Dos salidas, y --rebaseline NO es ninguna de las dos. (1) Subir la dependencia: la clave desaparece y el trinquete baja. (2) Si no hay version arreglada, `osv-scanner.toml` con `[[IgnoredVulns]]`, `id`, `reason` y un `ignoreUntil` corto: la clave desaparece del baseline hoy y VUELVE el dia que caduca, o sea que el aviso se re-arma solo. Un --rebaseline de rutina aqui mata la puerta, que es justo lo que dice el SKILL.",
+      "_clave": "`<lockfile> :: <ecosistema>/<paquete> :: <OSV-ID>`. Sin version del paquete (subir dentro del rango afectado sigue siendo vulnerable, y con la version dentro eso llegaria como una clave ida mas una nueva: rojo por un upgrade parcial) y sin severidad (el CVSS se revisa, y una revision moveria la clave sin que cambie ni la dependencia ni el aviso)."
     }
   ]
 }

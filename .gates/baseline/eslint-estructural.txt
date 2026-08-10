@@ -1,43 +1,108 @@
 # trinquete: una clave por linea, ordenado. Solo puede encoger.
-lib/claude-normalize.js :: complexity :: Function 'blockToEvents' has a complexity of N. Maximum allowed is N.
-lib/claude-normalize.js :: complexity :: Function 'compactAttachment' has a complexity of N. Maximum allowed is N.
-lib/claude-normalize.js :: complexity :: Function 'normalizeLine' has a complexity of N. Maximum allowed is N.
-lib/claude-normalize.js :: complexity :: Function 'pickResultShape' has a complexity of N. Maximum allowed is N.
-lib/claude-normalize.js :: max-depth :: Blocks are nested too deeply (N). Maximum allowed is N.
-lib/fs-file.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N.
-lib/fs-file.js :: complexity :: Async function 'readTextFile' has a complexity of N. Maximum allowed is N.
-lib/fs-file.js :: complexity :: Function 'sniffText' has a complexity of N. Maximum allowed is N.
-lib/fs-routes.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N.
-lib/pty-store.js :: complexity :: Function 'createSession' has a complexity of N. Maximum allowed is N.
-public/js/claude/app.js :: complexity :: Function 'handleAuthSuccess' has a complexity of N. Maximum allowed is N.
-public/js/claude/chrome.js :: complexity :: Function 'renderChrome' has a complexity of N. Maximum allowed is N.
-public/js/claude/files.js :: complexity :: Arrow function has a complexity of N. Maximum allowed is N.
-public/js/claude/render/card.js :: complexity :: Function 'applySpec' has a complexity of N. Maximum allowed is N.
-public/js/claude/render/hl.js :: complexity :: Function 'highlight' has a complexity of N. Maximum allowed is N.
-public/js/claude/render/md.js :: complexity :: Function 'readList' has a complexity of N. Maximum allowed is N.
-public/js/claude/render/md.js :: complexity :: Function 'renderMarkdown' has a complexity of N. Maximum allowed is N.
-public/js/claude/render/search.js :: complexity :: Function 'itemText' has a complexity of N. Maximum allowed is N.
-public/js/claude/render/system.js :: complexity :: Function 'attachmentNode' has a complexity of N. Maximum allowed is N.
-public/js/claude/render/system.js :: complexity :: Function 'metaNode' has a complexity of N. Maximum allowed is N.
-public/js/claude/render/tools-extra.js :: complexity :: Arrow function has a complexity of N. Maximum allowed is N.
-public/js/claude/render/tools-extra.js :: complexity :: Function 'agentSpec' has a complexity of N. Maximum allowed is N.
-public/js/claude/render/tools-extra.js :: complexity :: Function 'questionsSpec' has a complexity of N. Maximum allowed is N.
-public/js/claude/render/tools-extra.js :: complexity :: Function 'todoSpec' has a complexity of N. Maximum allowed is N.
-public/js/claude/render/tools-extra.js :: complexity :: Function 'webFetchSpec' has a complexity of N. Maximum allowed is N.
-public/js/claude/render/tools-extra.js :: complexity :: Method 'buildBody' has a complexity of N. Maximum allowed is N.
-public/js/claude/render/tools.js :: complexity :: Function 'editSpec' has a complexity of N. Maximum allowed is N.
-public/js/claude/render/tools.js :: complexity :: Function 'readSpec' has a complexity of N. Maximum allowed is N.
-public/js/claude/render/tools.js :: complexity :: Function 'writeSpec' has a complexity of N. Maximum allowed is N.
-public/js/claude/render/tools.js :: complexity :: Method 'buildBody' has a complexity of N. Maximum allowed is N.
-public/js/claude/status.js :: complexity :: Function 'syncFromTranscript' has a complexity of N. Maximum allowed is N.
-public/js/claude/stream.js :: complexity :: Function 'foldRaw' has a complexity of N. Maximum allowed is N.
-public/js/palette.js :: complexity :: Async function 'recoverSessions' has a complexity of N. Maximum allowed is N.
-public/js/palette.js :: max-depth :: Blocks are nested too deeply (N). Maximum allowed is N.
-public/js/socket.js :: complexity :: Arrow function has a complexity of N. Maximum allowed is N.
-public/js/ui.js :: complexity :: Arrow function has a complexity of N. Maximum allowed is N.
-server.js :: complexity :: Arrow function has a complexity of N. Maximum allowed is N.
-server.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N.
-tests/e2e/claude-files.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N.
-tests/e2e/claude-view.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N.
-tests/e2e/features.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N.
-tests/e2e/prod-smoke.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N.
+lib/build-stamp.js :: no-empty :: Empty block statement.
+lib/claude-normalize.js :: complexity :: Function 'blockToEvents' has a complexity of N. Maximum allowed is N. [>10]
+lib/claude-normalize.js :: complexity :: Function 'blockToEvents' has a complexity of N. Maximum allowed is N. [>15]
+lib/claude-normalize.js :: complexity :: Function 'compactAttachment' has a complexity of N. Maximum allowed is N. [>10]
+lib/claude-normalize.js :: complexity :: Function 'compactAttachment' has a complexity of N. Maximum allowed is N. [>15]
+lib/claude-normalize.js :: complexity :: Function 'compactAttachment' has a complexity of N. Maximum allowed is N. [>20]
+lib/claude-normalize.js :: complexity :: Function 'compactAttachment' has a complexity of N. Maximum allowed is N. [>30]
+lib/claude-normalize.js :: complexity :: Function 'normalizeLine' has a complexity of N. Maximum allowed is N. [>10]
+lib/claude-normalize.js :: complexity :: Function 'normalizeLine' has a complexity of N. Maximum allowed is N. [>15]
+lib/claude-normalize.js :: complexity :: Function 'normalizeLine' has a complexity of N. Maximum allowed is N. [>20]
+lib/claude-normalize.js :: complexity :: Function 'normalizeLine' has a complexity of N. Maximum allowed is N. [>30]
+lib/claude-normalize.js :: complexity :: Function 'pickResultShape' has a complexity of N. Maximum allowed is N. [>10]
+lib/claude-normalize.js :: complexity :: Function 'pickResultShape' has a complexity of N. Maximum allowed is N. [>15]
+lib/claude-normalize.js :: complexity :: Function 'pickResultShape' has a complexity of N. Maximum allowed is N. [>20]
+lib/claude-normalize.js :: complexity :: Function 'pickResultShape' has a complexity of N. Maximum allowed is N. [>30]
+lib/claude-normalize.js :: complexity :: Function 'pickResultShape' has a complexity of N. Maximum allowed is N. [>40]
+lib/claude-normalize.js :: max-depth :: Blocks are nested too deeply (N). Maximum allowed is N. [>4]
+lib/claude-normalize.js :: max-depth :: Blocks are nested too deeply (N). Maximum allowed is N. [>4] [x>1]
+lib/claude-watch.js :: no-empty :: Empty block statement.
+lib/claude-watch.js :: no-empty-function :: Unexpected empty arrow function.
+lib/fs-file.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N. [>10]
+lib/fs-file.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N. [>15]
+lib/fs-file.js :: complexity :: Async function 'readTextFile' has a complexity of N. Maximum allowed is N. [>10]
+lib/fs-file.js :: complexity :: Function 'sniffText' has a complexity of N. Maximum allowed is N. [>10]
+lib/fs-file.js :: no-empty-function :: Unexpected empty arrow function.
+lib/fs-file.js :: no-empty-function :: Unexpected empty arrow function. [x>1]
+lib/fs-file.js :: no-empty-function :: Unexpected empty arrow function. [x>2]
+lib/fs-file.js :: no-empty-function :: Unexpected empty arrow function. [x>3]
+lib/fs-routes.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N. [>10]
+lib/fs-routes.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N. [>10] [x>1]
+lib/fs-routes.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N. [>15]
+lib/fs-routes.js :: no-empty-function :: Unexpected empty arrow function.
+lib/pty-store.js :: complexity :: Function 'createSession' has a complexity of N. Maximum allowed is N. [>10]
+lib/pty-store.js :: no-empty :: Empty block statement.
+lib/pty-store.js :: no-empty :: Empty block statement. [x>1]
+lib/pty-store.js :: no-empty :: Empty block statement. [x>2]
+lib/pty-store.js :: no-empty :: Empty block statement. [x>3]
+lib/pty-store.js :: no-empty :: Empty block statement. [x>4]
+public/js/claude/app.js :: complexity :: Function 'handleAuthSuccess' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/chrome.js :: complexity :: Function 'renderChrome' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/chrome.js :: complexity :: Function 'renderChrome' has a complexity of N. Maximum allowed is N. [>15]
+public/js/claude/files.js :: complexity :: Arrow function has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/card.js :: complexity :: Function 'applySpec' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/hl.js :: complexity :: Function 'highlight' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/hl.js :: complexity :: Function 'highlight' has a complexity of N. Maximum allowed is N. [>15]
+public/js/claude/render/hl.js :: complexity :: Function 'highlight' has a complexity of N. Maximum allowed is N. [>20]
+public/js/claude/render/hl.js :: complexity :: Function 'highlight' has a complexity of N. Maximum allowed is N. [>30]
+public/js/claude/render/md.js :: complexity :: Function 'readList' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/md.js :: complexity :: Function 'renderMarkdown' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/md.js :: complexity :: Function 'renderMarkdown' has a complexity of N. Maximum allowed is N. [>15]
+public/js/claude/render/search.js :: complexity :: Function 'itemText' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/search.js :: complexity :: Function 'itemText' has a complexity of N. Maximum allowed is N. [>15]
+public/js/claude/render/system.js :: complexity :: Function 'attachmentNode' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/system.js :: complexity :: Function 'attachmentNode' has a complexity of N. Maximum allowed is N. [>15]
+public/js/claude/render/system.js :: complexity :: Function 'attachmentNode' has a complexity of N. Maximum allowed is N. [>20]
+public/js/claude/render/system.js :: complexity :: Function 'metaNode' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/system.js :: complexity :: Function 'metaNode' has a complexity of N. Maximum allowed is N. [>15]
+public/js/claude/render/system.js :: complexity :: Function 'metaNode' has a complexity of N. Maximum allowed is N. [>20]
+public/js/claude/render/tools-extra.js :: complexity :: Arrow function has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/tools-extra.js :: complexity :: Function 'agentSpec' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/tools-extra.js :: complexity :: Function 'agentSpec' has a complexity of N. Maximum allowed is N. [>15]
+public/js/claude/render/tools-extra.js :: complexity :: Function 'questionsSpec' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/tools-extra.js :: complexity :: Function 'todoSpec' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/tools-extra.js :: complexity :: Function 'webFetchSpec' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/tools-extra.js :: complexity :: Method 'buildBody' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/tools-extra.js :: complexity :: Method 'buildBody' has a complexity of N. Maximum allowed is N. [>10] [x>1]
+public/js/claude/render/tools-extra.js :: complexity :: Method 'buildBody' has a complexity of N. Maximum allowed is N. [>10] [x>2]
+public/js/claude/render/tools.js :: complexity :: Function 'editSpec' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/tools.js :: complexity :: Function 'readSpec' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/tools.js :: complexity :: Function 'writeSpec' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/render/tools.js :: complexity :: Method 'buildBody' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/status.js :: complexity :: Function 'syncFromTranscript' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/stream.js :: complexity :: Function 'foldRaw' has a complexity of N. Maximum allowed is N. [>10]
+public/js/claude/stream.js :: complexity :: Function 'foldRaw' has a complexity of N. Maximum allowed is N. [>15]
+public/js/main.js :: no-empty-function :: Unexpected empty arrow function.
+public/js/main.js :: no-empty-function :: Unexpected empty arrow function. [x>1]
+public/js/palette.js :: complexity :: Async function 'recoverSessions' has a complexity of N. Maximum allowed is N. [>10]
+public/js/palette.js :: complexity :: Async function 'recoverSessions' has a complexity of N. Maximum allowed is N. [>15]
+public/js/palette.js :: complexity :: Async function 'recoverSessions' has a complexity of N. Maximum allowed is N. [>20]
+public/js/palette.js :: max-depth :: Blocks are nested too deeply (N). Maximum allowed is N. [>4]
+public/js/sessions.js :: no-empty :: Empty block statement.
+public/js/sessions.js :: no-empty :: Empty block statement. [x>1]
+public/js/sessions.js :: no-empty :: Empty block statement. [x>2]
+public/js/socket.js :: complexity :: Arrow function has a complexity of N. Maximum allowed is N. [>10]
+public/js/socket.js :: complexity :: Arrow function has a complexity of N. Maximum allowed is N. [>10] [x>1]
+public/js/socket.js :: complexity :: Arrow function has a complexity of N. Maximum allowed is N. [>15]
+public/js/socket.js :: complexity :: Arrow function has a complexity of N. Maximum allowed is N. [>15] [x>1]
+public/js/state.js :: no-empty :: Empty block statement.
+public/js/state.js :: no-empty :: Empty block statement. [x>1]
+public/js/ui.js :: complexity :: Arrow function has a complexity of N. Maximum allowed is N. [>10]
+public/js/ui.js :: no-empty-function :: Unexpected empty arrow function.
+server.js :: complexity :: Arrow function has a complexity of N. Maximum allowed is N. [>10]
+server.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N. [>10]
+server.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N. [>15]
+server.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N. [>20]
+tests/e2e/claude-files.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N. [>10]
+tests/e2e/claude-files.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N. [>15]
+tests/e2e/claude-view.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N. [>10]
+tests/e2e/claude-view.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N. [>15]
+tests/e2e/features.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N. [>10]
+tests/e2e/features.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N. [>15]
+tests/e2e/features.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N. [>20]
+tests/e2e/prod-smoke.js :: complexity :: Async arrow function has a complexity of N. Maximum allowed is N. [>10]
+tests/e2e/stress.js :: no-empty :: Empty block statement.
+tests/e2e/stress.js :: no-empty :: Empty block statement. [x>1]
+tests/unit/claude-watch.test.js :: no-empty :: Empty block statement.
+tests/unit/pty-store.test.js :: no-empty-function :: Unexpected empty method 'resize'.

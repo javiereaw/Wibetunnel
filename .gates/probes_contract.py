@@ -70,8 +70,40 @@ def _rev(root, ref):
     return out.strip() if code == 0 and out.strip() else None
 
 
+def _gh_default_branch(root):
+    """La rama por defecto segun GitHub, o None. Cuesta red: solo para desempatar."""
+    try:
+        p = subprocess.run(["gh", "repo", "view", "--json", "defaultBranchRef",
+                            "-q", ".defaultBranchRef.name"], cwd=root, timeout=20,
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        name = p.stdout.decode("utf-8", "replace").strip()
+        return name if p.returncode == 0 and name else None
+    except Exception:
+        return None
+
+
+def _first_ref(root, names):
+    for n in names:
+        for ref in ("origin/" + n, n):
+            sha = _rev(root, ref)
+            if sha:
+                return sha
+    return None
+
+
 def _resolve_base(root):
     """Sha de la base de comparacion, o None.
+
+    Refs locales PRIMERO; `gh` solo desempata. Al reves costaba ~0,6 s de red en
+    cada pasada —el 90% del coste de la puerta— para acabar eligiendo justo la
+    rama que ya resolvia en local. `gh` solo aporta cuando lo local no decide:
+    cero candidatos, o main y master a la vez. Y un git hook no hereda el PATH de
+    la shell, asi que ahi `gh` puede ni existir: depender de el para el caso
+    normal era ademas fragil.
+
+    El precio, explicito: en un repo cuya rama por defecto NO es la unica de
+    {main, master} que existe en local, ahora se elige la local. Si eso pasa,
+    TRINQUETE_BASE lo fija a mano.
 
     NO se usa refs/remotes/origin/HEAD: en los cuatro repos donde se comprobo
     devuelve vacio (nadie corre `git remote set-head`), y una base vacia se lee
@@ -79,26 +111,22 @@ def _resolve_base(root):
     """
     env = os.environ.get("TRINQUETE_BASE", "").strip()
     if env:
-        sha = _rev(root, env)
-        return sha or None
-    cands = []
-    try:
-        p = subprocess.run(["gh", "repo", "view", "--json", "defaultBranchRef",
-                            "-q", ".defaultBranchRef.name"], cwd=root, timeout=20,
-                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        name = p.stdout.decode("utf-8", "replace").strip()
-        if p.returncode == 0 and name:
-            cands.append("origin/" + name)
-    except Exception:
-        pass
-    # Locales al final: un repo sin remote (claude-toolkit mismo) sigue teniendo
-    # rama por defecto, y quedarse sin base ahi seria INDETERMINADO para siempre.
-    cands += ["origin/main", "origin/master", "main", "master"]
-    for ref in cands:
-        sha = _rev(root, ref)
+        return _rev(root, env) or None
+
+    hits = [n for n in ("main", "master")
+            if _rev(root, "origin/" + n) or _rev(root, n)]
+    if len(hits) == 1:
+        return _first_ref(root, hits)
+
+    name = _gh_default_branch(root)
+    if name:
+        sha = _first_ref(root, [name])
         if sha:
             return sha
-    return None
+    # Ni local unico ni gh: se cae al orden fijo de siempre. Un repo sin remote
+    # (claude-toolkit mismo) sigue teniendo rama por defecto, y quedarse sin base
+    # ahi seria INDETERMINADO para siempre.
+    return _first_ref(root, ["main", "master"])
 
 
 def _range(root):

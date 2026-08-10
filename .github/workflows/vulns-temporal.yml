@@ -1,0 +1,56 @@
+name: Vulns (puerta temporal)
+
+# La PRIMERA puerta temporal del parque. Las demas se disparan porque alguien
+# toco codigo; esta se dispara porque el mundo publico un aviso nuevo sobre una
+# dependencia que ya estaba ahi. Sin cron no la dispara nadie: no hay diff que
+# mirar, y por eso es justo la categoria donde se pudre un repo en silencio.
+#
+# Diario y no semanal: entre que se publica un aviso y que alguien lo mira, los
+# dias cuentan. Cuesta ~15 s de runner.
+#
+# `--profile temporal` corre SOLO 'vulns-dependencias'. El resto de puertas ya
+# las corre el CI en cada PR y repetirlas aqui seria ruido: si enrojecen sin
+# commits de por medio, el problema es otro.
+#
+# OJO: GitHub desactiva los workflows programados de un repo sin actividad
+# durante 60 dias. En un repo parado --- que es donde mas falta hace --- hay que
+# reactivarlo a mano desde la pestaña Actions.
+
+on:
+  schedule:
+    - cron: "37 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vulns:
+    name: Vulnerabilidades de dependencias
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Version FIJA y sha256 comprobado: si el binario del release cambiase,
+      # este paso peta en vez de ejecutar otra cosa. Los DATOS siguen frescos
+      # igual --- el escaner consulta api.osv.dev en cada pasada.
+      - name: Instalar osv-scanner
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sSLf -o "$HOME/.local/bin/osv-scanner" \
+            https://github.com/google/osv-scanner/releases/download/v2.5.0/osv-scanner_linux_amd64
+          echo "edcfc41d257db36148f065055655fe3fcfc434b0b423ea67468a84c207524e0c  $HOME/.local/bin/osv-scanner" | sha256sum -c -
+          chmod +x "$HOME/.local/bin/osv-scanner"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Puertas (perfil temporal)
+        run: python3 .gates/gates.py --profile temporal
+
+# Sin paso de aviso: este repo no tiene el workflow reutilizable de Telegram que
+# si tiene vivezgz. GitHub manda un email al dueño cuando un workflow PROGRAMADO
+# falla, asi que la señal llega igual --- por un canal peor, pero llega.

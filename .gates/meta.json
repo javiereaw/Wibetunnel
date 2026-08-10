@@ -1,22 +1,31 @@
 {
-  "_runner_version": 2,
-  "contrato-agentes": {},
+  "_runner_version": 8,
+  "contrato-agentes": {
+    "rebaseline_reason": "tramo de conteo (runner v5): las claves repetidas en un fichero dejan de colapsar"
+  },
   "dead-exports": {
     "denominator": 151,
-    "rebaseline_reason": "fingerprint estrechado a eslint.config.js: hashear package.json daba falsa alarma con los scripts gates:*"
+    "rebaseline_reason": "tramo de conteo (runner v5): las claves repetidas en un fichero dejan de colapsar"
   },
   "eslint-estructural": {
     "denominator": 64,
-    "fingerprint": "5f78d198e5e49f45",
-    "rebaseline_reason": "fingerprint estrechado a eslint.config.js: hashear package.json daba falsa alarma con los scripts gates:*"
+    "fingerprint": "0087fd66a0dfa764",
+    "keyfmt": 3,
+    "rebaseline_reason": "tramo de conteo (runner v5): las claves repetidas en un fichero dejan de colapsar"
   },
-  "frescura-runner": {},
+  "frescura-runner": {
+    "rebaseline_reason": "tramo de conteo (runner v5): las claves repetidas en un fichero dejan de colapsar"
+  },
   "import-cycles": {
     "denominator": 47,
-    "rebaseline_reason": "fingerprint estrechado a eslint.config.js: hashear package.json daba falsa alarma con los scripts gates:*"
+    "rebaseline_reason": "tramo de conteo (runner v5): las claves repetidas en un fichero dejan de colapsar"
   },
   "loc-500": {
     "denominator": 47,
-    "rebaseline_reason": "fingerprint estrechado a eslint.config.js: hashear package.json daba falsa alarma con los scripts gates:*"
+    "keyfmt": 2,
+    "rebaseline_reason": "tramo de conteo (runner v5): las claves repetidas en un fichero dejan de colapsar"
+  },
+  "vulns-dependencias": {
+    "denominator": 166
   }
 }
